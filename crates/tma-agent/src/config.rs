@@ -1,0 +1,71 @@
+use anyhow::Context;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    pub install_dir: PathBuf,
+    #[serde(default)]
+    pub control_plane_url: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub enrollment_token: Option<String>,
+    #[serde(default)]
+    pub device_id: Option<Uuid>,
+    #[serde(default, skip_serializing)]
+    pub device_token: Option<String>,
+    pub ipc_credential: String,
+}
+
+impl Config {
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
+        let value =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let mut config: Self = serde_json::from_str(&value)?;
+        if config.ipc_credential.len() < 32 {
+            anyhow::bail!("invalid IPC credential")
+        }
+        if let Some(url) = &config.control_plane_url {
+            let parsed = http::Uri::try_from(url.as_str())?;
+            let secure = parsed.scheme_str() == Some("https");
+            let loopback = parsed
+                .host()
+                .is_some_and(|host| matches!(host, "127.0.0.1" | "localhost" | "[::1]" | "::1"));
+            if !(secure || (parsed.scheme_str() == Some("http") && loopback)) {
+                anyhow::bail!("control plane must use HTTPS, except loopback development")
+            }
+        }
+        if config.device_token.is_none() {
+            if let Ok(token) = std::fs::read_to_string(path.with_file_name("device-token")) {
+                config.device_token = Some(token.trim().to_owned());
+            }
+        }
+        if config.enrollment_token.is_none() {
+            if let Ok(code) = std::fs::read_to_string(path.with_file_name("pairing-code")) {
+                config.enrollment_token = Some(code.trim().to_owned());
+            }
+        }
+        Ok(config)
+    }
+
+    pub fn save(&self, path: &Path) -> anyhow::Result<()> {
+        let temporary = path.with_extension("tmp");
+        std::fs::write(&temporary, serde_json::to_vec_pretty(self)?)?;
+        crate::platform::restrict_file(&temporary)?;
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        std::fs::rename(temporary, path)?;
+        if let Some(token) = &self.device_token {
+            let token_path = path.with_file_name("device-token");
+            std::fs::write(&token_path, token.as_bytes())?;
+            crate::platform::restrict_file(&token_path)?;
+        }
+        crate::platform::restrict_file(path)?;
+        crate::platform::restrict_ipc_config(path)?;
+        if self.enrollment_token.is_none() {
+            let _ = std::fs::remove_file(path.with_file_name("pairing-code"));
+        }
+        Ok(())
+    }
+}

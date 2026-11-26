@@ -1,0 +1,33 @@
+[workspace]
+members = ["crates/tma-agent", "crates/tma-installer"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+rust-version = "1.80"
+license = "Apache-2.0"
+edition = "2021"
+
+[workspace.dependencies]
+anyhow = "1.0.95"
+base64 = "0.22.1"
+chrono = { version = "0.4.39", default-features = false, features = ["clock", "std", "serde"] }
+clap = { version = "4.5.23", features = ["derive"] }
+getrandom = { version = "0.2.15", features = ["std"] }
+http = "1.2.0"
+flate2 = "1.0.35"
+regex = "1.11.1"
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+serde = { version = "1.0.216", features = ["derive"] }
+serde_json = "1.0.133"
+sha2 = "0.10.8"
+tempfile = "3.14.0"
+ureq = { version = "2.12.1", default-features = false, features = ["tls", "json"] }
+uuid = { version = "1.11.0", features = ["v4", "serde"] }
+windows-sys = { version = "0.59.0", features = [
+  "Win32_Foundation", "Win32_Security", "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Memory",
+  "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_Services",
+  "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming",
+  "Win32_UI_Shell"
+] }

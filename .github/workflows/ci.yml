@@ -1,0 +1,25 @@
+name: agent-ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          target: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo build --release -p tma-agent
+      - run: cargo build --release -p tma-installer
+        env:
+          TMA_PAYLOAD_DIR: ${{ github.workspace }}\target\release
+      - run: New-Item -ItemType Directory -Force dist; Copy-Item target/release/tma-installer.exe dist/setup.exe
+        shell: pwsh
