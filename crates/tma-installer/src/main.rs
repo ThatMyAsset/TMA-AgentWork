@@ -1,3 +1,7 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
+mod validation;
+
 #[cfg(not(windows))]
 fn main() {
     eprintln!("tma-installer is supported only on Windows");
@@ -6,15 +10,32 @@ fn main() {
 
 #[cfg(windows)]
 fn main() {
+    let arguments: Vec<_> = std::env::args_os().collect();
+    let gui = arguments.len() == 1;
+    if !gui && arguments.get(1).map_or(true, |arg| arg != "--worker") {
+        unsafe {
+            windows_sys::Win32::System::Console::AttachConsole(
+                windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS,
+            );
+        }
+    }
     if let Err(error) = installer::run() {
-        eprintln!("tma-installer: {error:#}");
+        if gui {
+            installer::show_fatal_error(&format!(
+                "ThatMyAssets setup could not start.\n\n{error:#}"
+            ));
+        } else if arguments.get(1).map_or(true, |arg| arg != "--worker") {
+            eprintln!("tma-installer: {error:#}");
+        }
         std::process::exit(1);
     }
 }
 
 #[cfg(windows)]
 mod installer {
+    mod gui;
     include!(concat!(env!("OUT_DIR"), "/payloads.rs"));
+    use crate::validation;
     use anyhow::{bail, Context};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use std::ffi::OsStr;
@@ -139,14 +160,117 @@ mod installer {
         set_acl(path, "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;LS)(A;;GR;;;AU)")
     }
 
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+
+    static WORKER_OUTPUT: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
+
+    fn emit(kind: &str, value: &str, detail: &str) {
+        let clean = |text: &str| text.replace(['|', '\r', '\n'], " ");
+        let line = format!("{kind}|{}|{}\n", clean(value), clean(detail));
+        if let Some(output) = WORKER_OUTPUT.get() {
+            if let Ok(mut output) = output.lock() {
+                let _ = output.write_all(line.as_bytes());
+                let _ = output.flush();
+            }
+        }
+    }
+
+    fn progress(percent: u32, detail: &str) {
+        emit("progress", &percent.to_string(), detail);
+    }
+
     pub fn run() -> anyhow::Result<()> {
         let mut args = std::env::args().skip(1);
-        let command = args.next().unwrap_or_else(|| "install".into());
+        let Some(command) = args.next() else {
+            return gui::run();
+        };
         match command.as_str() {
-            "install" | "repair" | "upgrade" => install(),
+            "--worker" => {
+                let operation = args.next().context("worker operation required")?;
+                let report = args.next().context("worker report path required")?;
+                let purge = args.next().as_deref() == Some("--purge");
+                let report = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(report)
+                    .context("opening setup progress report")?;
+                let _ = WORKER_OUTPUT.set(Mutex::new(report));
+                if operation != "uninstall" {
+                    for variable in ["TMA_CONTROL_PLANE_URL", "TMA_PAIRING_CODE", "TMA_CHROME_EXTENSION_ID", "TMA_EDGE_EXTENSION_ID"] {
+                        if let Ok(value) = std::env::var(variable) {
+                            if !value.is_empty() {
+                                let result = match variable {
+                                    "TMA_CONTROL_PLANE_URL" => validation::validate_url(&value).map(|_| ()).map_err(str::to_owned),
+                                    "TMA_PAIRING_CODE" => validation::validate_pairing_code(&value).map(|_| ()).map_err(str::to_owned),
+                                    "TMA_CHROME_EXTENSION_ID" => validation::validate_extension_id(&value, "Chrome").map(|_| ()),
+                                    _ => validation::validate_extension_id(&value, "Edge").map(|_| ()),
+                                };
+                                if let Err(error) = result {
+                                    emit("result", "error", &format!("{variable}: {error}"));
+                                    return Err(anyhow::anyhow!(error));
+                                }
+                            }
+                        }
+                    }
+                }
+                let result = match operation.as_str() {
+                    "install" => install(),
+                    "repair" | "upgrade" => install(),
+                    "uninstall" => uninstall(purge),
+                    _ => bail!("invalid worker operation"),
+                };
+                match result {
+                    Ok(()) => {
+                        if operation == "uninstall" {
+                            emit("result", "removed", if purge {
+                                "Agent removed. Local events and enrollment were permanently erased."
+                            } else {
+                                "Agent service and binaries removed. Local events and enrollment were preserved."
+                            });
+                        }
+                        Ok(())
+                    }
+                    Err(error) => {
+                        emit("result", "error", &format!("{error:#}"));
+                        Err(error)
+                    }
+                }
+            }
+            "install" | "repair" | "upgrade" => {
+                if let Ok(url) = std::env::var("TMA_CONTROL_PLANE_URL") {
+                    if !url.is_empty() {
+                        validation::validate_url(&url).map_err(|error| anyhow::anyhow!(error))?;
+                    }
+                }
+                if let Ok(code) = std::env::var("TMA_PAIRING_CODE") {
+                    if !code.is_empty() {
+                        validation::validate_pairing_code(&code).map_err(|error| anyhow::anyhow!(error))?;
+                    }
+                }
+                for (variable, browser) in [("TMA_CHROME_EXTENSION_ID", "Chrome"), ("TMA_EDGE_EXTENSION_ID", "Edge")] {
+                    if let Ok(id) = std::env::var(variable) {
+                        if !id.is_empty() {
+                            validation::validate_extension_id(&id, browser).map_err(anyhow::Error::msg)?;
+                        }
+                    }
+                }
+                install()
+            }
             "uninstall" => uninstall(args.any(|arg| arg == "--purge")),
             "register-extension" => register_extension(args.next().context("Chrome extension ID required")?, args.next()),
-            _ => bail!("usage: tma-installer install|repair|upgrade | uninstall [--purge] | register-extension <chrome-id> [edge-id]"),
+            _ => bail!("usage: tma-installer [install|repair|upgrade | uninstall [--purge] | register-extension <chrome-id> [edge-id]]"),
+        }
+    }
+
+    pub fn show_fatal_error(message: &str) {
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
+                null_mut(),
+                wide(message).as_ptr(),
+                wide("ThatMyAssets Agent setup").as_ptr(),
+                windows_sys::Win32::UI::WindowsAndMessaging::MB_OK
+                    | windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONERROR,
+            );
         }
     }
 
@@ -159,6 +283,7 @@ mod installer {
 
     fn install() -> anyhow::Result<()> {
         require_admin()?;
+        progress(2, "Verifying administrator access and embedded payloads");
         let source = std::env::current_exe()?
             .parent()
             .context("installer directory")?
@@ -179,12 +304,17 @@ mod installer {
         std::fs::create_dir_all(&data)?;
         acl(&install, true)?;
         acl(&data, false)?;
+        progress(12, "Preparing protected program and data directories");
 
         // Stop before replacement; SCM recovery settings survive an in-place upgrade.
         let manager = open_manager(SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE)?;
         if let Ok(service) = open_service(SERVICE_STOP | SERVICE_QUERY_STATUS) {
             stop_service(service.0)?;
         }
+        progress(
+            25,
+            "Installing agent, relay, parser and diagnostic binaries",
+        );
         for (name, compressed) in PAYLOADS {
             use std::io::Read;
             let destination = install.join(name);
@@ -206,6 +336,10 @@ mod installer {
                 .with_context(|| format!("installing {}", destination.display()))?;
             acl(&destination, true)?;
         }
+        progress(
+            55,
+            "Preserving enrollment and protecting local configuration",
+        );
         let config_path = data.join("config.json");
         let mut config = if config_path.exists() {
             std::fs::read_to_string(&config_path)?.parse::<serde_json::Value>()?
@@ -216,7 +350,7 @@ mod installer {
         if config
             .get("ipc_credential")
             .and_then(|v| v.as_str())
-            .is_none_or(|v| v.len() < 32)
+            .map_or(true, |v| v.len() < 32)
             || std::env::var_os("TMA_ROTATE_IPC_CREDENTIAL").is_some()
         {
             config["ipc_credential"] = serde_json::Value::String(random_credential()?);
@@ -236,6 +370,7 @@ mod installer {
         std::fs::write(&config_path, serde_json::to_vec_pretty(&config)?)?;
         // Relay needs read-only local credential. Authenticated Users cannot modify protected config.
         acl_with_users(&config_path)?;
+        progress(68, "Configuring automatic startup and service recovery");
 
         let binary = format!("\"{}\"", install.join("tma-agent.exe").display());
         let service =
@@ -289,7 +424,9 @@ mod installer {
                 }
             };
         configure_recovery(service.0)?;
+        progress(78, "Registering the authenticated browser relay");
         register_host(&install.join("tma-relay.exe"))?;
+        progress(84, "Starting the agent service");
         if unsafe { StartServiceW(service.0, 0, null()) } == 0 {
             let error = std::io::Error::last_os_error();
             if error.raw_os_error() != Some(1056) {
@@ -297,12 +434,45 @@ mod installer {
             }
         }
         wait_service_running(service.0, std::time::Duration::from_secs(30))?;
-        match std::process::Command::new(install.join("tma-doctor.exe")).arg("health").output() {
-            Ok(output) if output.status.success() => println!("Service running; local health: {}", String::from_utf8_lossy(&output.stdout).trim()),
-            _ => println!("Service running; health pending. Enrollment/browser connection may be incomplete; run tma-doctor.exe health."),
-        }
-        println!("Native host {HOST_NAME} registered for Chrome and Edge. Set allowed extension IDs with register-extension.");
+        progress(92, "Checking local enrollment and protection health");
+        let health = health_report(&install);
+        emit("result", &health.0, &health.1);
+        println!("{}", health.1);
+        println!("Native host {HOST_NAME} registered for Chrome and Edge.");
         Ok(())
+    }
+
+    pub fn health_report(install: &Path) -> (String, String) {
+        use std::os::windows::process::CommandExt;
+        if !install.join("tma-doctor.exe").is_file() {
+            return ("unavailable".into(), "Agent is not installed or its diagnostic binary is missing. Protection is not confirmed.".into());
+        }
+        let output = std::process::Command::new(install.join("tma-doctor.exe"))
+            .arg("health")
+            .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
+            .output();
+        let status = output
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| {
+                serde_json::from_slice::<serde_json::Value>(&output.stdout)
+                    .ok()
+                    .and_then(|health| health["status"].as_str().map(str::to_owned))
+            });
+        let enrolled = std::fs::read(PathBuf::from(DATA_DIR).join("config.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .is_some_and(|config| config["device_token"].as_str().is_some())
+            || PathBuf::from(DATA_DIR).join("device-token").is_file();
+        let message = match status.as_deref() {
+            Some("protected") => "Protected: local health confirms policy readiness and a browser connection.".to_owned(),
+            Some("limited") if enrolled => "Service running and enrolled. Status: limited. Browser connection or policy readiness is still required.".to_owned(),
+            Some("limited") => "Service running. Status: limited. Waiting for enrollment and first policy synchronization.".to_owned(),
+            Some("pending_enrollment") => "Service running. Enrollment is pending; protection is not yet active.".to_owned(),
+            Some("degraded") => "Service running with degraded health. Protection is not confirmed; run tma-doctor health.".to_owned(),
+            _ => "Service running. Health is not yet available; enrollment and browser connection may be incomplete. Use Recheck health.".to_owned(),
+        };
+        (status.unwrap_or_else(|| "unavailable".into()), message)
     }
     fn wait_service_running(handle: SC_HANDLE, timeout: std::time::Duration) -> anyhow::Result<()> {
         let started = std::time::Instant::now();
@@ -367,15 +537,15 @@ mod installer {
         let mut actions = [
             SC_ACTION {
                 Type: SC_ACTION_RESTART,
-                Delay: 1000,
-            },
-            SC_ACTION {
-                Type: SC_ACTION_RESTART,
                 Delay: 5000,
             },
             SC_ACTION {
                 Type: SC_ACTION_RESTART,
-                Delay: 30000,
+                Delay: 15000,
+            },
+            SC_ACTION {
+                Type: SC_ACTION_RESTART,
+                Delay: 60000,
             },
         ];
         let failure = SERVICE_FAILURE_ACTIONSW {
@@ -450,11 +620,21 @@ mod installer {
     fn register_host(relay: &Path) -> anyhow::Result<()> {
         let data = PathBuf::from(DATA_DIR);
         let manifest = data.join("native-host.json");
-        let origins = std::env::var("TMA_CHROME_EXTENSION_ID")
+        let mut origins = std::fs::read(&manifest)
             .ok()
-            .filter(|id| !id.is_empty())
-            .map(|id| vec![format!("chrome-extension://{id}/")])
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|value| value["allowed_origins"].as_array().cloned())
             .unwrap_or_default();
+        for variable in ["TMA_CHROME_EXTENSION_ID", "TMA_EDGE_EXTENSION_ID"] {
+            if let Ok(id) = std::env::var(variable) {
+                if !id.is_empty() {
+                    let origin = format!("chrome-extension://{id}/");
+                    if !origins.iter().any(|item| item.as_str() == Some(&origin)) {
+                        origins.push(origin.into());
+                    }
+                }
+            }
+        }
         // Empty origins deliberately prevents browser access until a real extension ID is configured.
         let manifest_body = serde_json::json!({"name": HOST_NAME, "description": "ThatMyAssets authenticated native messaging relay", "path": relay.to_string_lossy(), "type": "stdio", "allowed_origins": origins});
         std::fs::write(&manifest, serde_json::to_vec_pretty(&manifest_body)?)?;
@@ -474,25 +654,20 @@ mod installer {
 
     fn register_extension(chrome: String, edge: Option<String>) -> anyhow::Result<()> {
         require_admin()?;
+        validation::validate_extension_id(&chrome, "Chrome").map_err(anyhow::Error::msg)?;
+        if let Some(id) = &edge {
+            validation::validate_extension_id(id, "Edge").map_err(anyhow::Error::msg)?;
+            std::env::set_var("TMA_EDGE_EXTENSION_ID", id);
+        }
         std::env::set_var("TMA_CHROME_EXTENSION_ID", &chrome);
         register_host(&PathBuf::from(INSTALL_DIR).join("tma-relay.exe"))?;
-        // Edge ID is written separately because Chrome and Edge accepted origins can differ.
-        if let Some(edge) = edge {
-            let manifest = PathBuf::from(DATA_DIR).join("native-host.json");
-            let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest)?)?;
-            value["allowed_origins"]
-                .as_array_mut()
-                .context("origins")?
-                .push(format!("chrome-extension://{edge}/").into());
-            std::fs::write(&manifest, serde_json::to_vec_pretty(&value)?)?;
-            acl(&manifest, true)?;
-        }
         println!("Native Messaging allowlist updated; reload browser extensions");
         Ok(())
     }
 
     fn uninstall(purge: bool) -> anyhow::Result<()> {
         require_admin()?;
+        progress(10, "Stopping and removing the agent service");
         let _manager = open_manager(SC_MANAGER_CONNECT)?;
         if let Ok(service) = open_service(SERVICE_STOP | DELETE | SERVICE_QUERY_STATUS) {
             let _ = stop_service(service.0);
@@ -503,6 +678,7 @@ mod installer {
                 }
             }
         }
+        progress(40, "Removing Chrome and Edge native host registrations");
         for path in [
             format!(r"Software\Google\Chrome\NativeMessagingHosts\{HOST_NAME}"),
             format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{HOST_NAME}"),
@@ -512,25 +688,34 @@ mod installer {
                 bail!("removing native host registration: {result}")
             }
         }
+        progress(65, "Removing installed binaries");
         for name in BINARIES {
             let path = PathBuf::from(INSTALL_DIR).join(name);
-            if path.exists() && std::fs::remove_file(&path).is_err() {
-                if unsafe {
+            if path.exists()
+                && std::fs::remove_file(&path).is_err()
+                && unsafe {
                     MoveFileExW(
                         wide(path.as_os_str()).as_ptr(),
                         null(),
                         MOVEFILE_DELAY_UNTIL_REBOOT,
                     )
                 } == 0
-                {
-                    bail!(
-                        "scheduling binary removal: {}",
-                        std::io::Error::last_os_error()
-                    )
-                }
+            {
+                bail!(
+                    "scheduling binary removal: {}",
+                    std::io::Error::last_os_error()
+                )
             }
         }
-        if purge {
+        progress(
+            85,
+            if purge {
+                "Permanently erasing local events and enrollment"
+            } else {
+                "Preserving local events and enrollment"
+            },
+        );
+        if purge && Path::new(DATA_DIR).exists() {
             std::fs::remove_dir_all(DATA_DIR).context(
                 "removing queued events and enrollment; use without --purge to preserve",
             )?;
@@ -541,6 +726,7 @@ mod installer {
             let _ = std::fs::remove_file(PathBuf::from(DATA_DIR).join("native-host.json"));
             println!("Removed service and binaries. Preserved {} for reinstallation; use uninstall --purge to erase it.", DATA_DIR);
         }
+        progress(100, "Removal complete");
         Ok(())
     }
 }

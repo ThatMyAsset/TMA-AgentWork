@@ -151,6 +151,16 @@ mod windows {
                 DisconnectNamedPipe(self.handle.0);
             }
         }
+        pub fn cancel_connect(&self) -> anyhow::Result<()> {
+            use windows_sys::Win32::System::IO::CancelIoEx;
+            if unsafe { CancelIoEx(self.handle.0, null()) } == 0 {
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() != Some(1168) {
+                    return Err(error.into());
+                }
+            }
+            Ok(())
+        }
         pub fn client(timeout: Duration) -> anyhow::Result<Self> {
             let started = std::time::Instant::now();
             loop {

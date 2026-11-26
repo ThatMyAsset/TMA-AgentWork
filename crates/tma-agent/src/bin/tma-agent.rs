@@ -58,7 +58,19 @@ fn run_server() -> anyhow::Result<()> {
     windows_service::set_running();
     while !STOP.load(Ordering::Relaxed) {
         let pipe = tma_agent::platform::Pipe::server()?;
-        pipe.connect()?;
+        while !STOP.load(Ordering::Relaxed) {
+            match pipe.connect() {
+                Ok(()) => break,
+                Err(error)
+                    if error
+                        .downcast_ref::<std::io::Error>()
+                        .is_some_and(|e| e.kind() == std::io::ErrorKind::Interrupted) =>
+                {
+                    continue
+                }
+                Err(error) => return Err(error),
+            }
+        }
         if STOP.load(Ordering::Relaxed) {
             break;
         }
@@ -126,6 +138,7 @@ mod windows_service {
         match control {
             SERVICE_CONTROL_STOP | SERVICE_CONTROL_SHUTDOWN => {
                 STOP.store(true, Ordering::Relaxed);
+                // A short client connection releases the blocking accept loop.
                 let _ = tma_agent::platform::Pipe::client(std::time::Duration::from_millis(100));
                 set_status(SERVICE_STOP_PENDING, 0);
                 0

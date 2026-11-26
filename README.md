@@ -30,7 +30,9 @@ Remove-Item Env:TMA_PAYLOAD_DIR
 
 `dist/setup.exe` is standalone offline installer: its build script embeds zlib-compressed `tma-agent.exe`, `tma-relay.exe`, `tma-parser.exe` and `tma-doctor.exe`. Payload directory is needed only while building installer, not while running it. Explicit development path: build installer without `TMA_PAYLOAD_DIR` and keep those four binaries beside `tma-installer.exe`.
 
-This slice provides command-line setup only. Masterplan graphical installer UI is not implemented; no GUI success/progress screen is claimed.
+Launch `dist\setup.exe` without arguments for native Windows setup. Choose **Install agent**, **Repair / upgrade**, or **Uninstall**. The form validates the control-plane URL, one-time pairing code, required Chrome extension ID and optional Edge ID before requesting UAC elevation. Work runs in a separate elevated process; the window reports actual setup stages and errors without freezing. **Recheck health** queries the installed service over authenticated IPC. Setup never claims `Protected` from service startup alone: enrollment, policy readiness and browser connection must be confirmed by health.
+
+The same executable retains all CLI commands below. GUI repair with every connection field blank preserves existing configuration. Uninstall retains data by default; selecting purge shows an explicit irreversible-data warning before removing queued events, enrollment and policy.
 
 ## Install, pair and start
 
@@ -41,7 +43,7 @@ $env:TMA_CHROME_EXTENSION_ID = "extension-id-from-chrome-web-store-or-unpacked-l
 .\dist\setup.exe install
 ```
 
-Installer creates `C:\Program Files\ThatMyAssets\Agent` and `C:\ProgramData\ThatMyAssets`, protected random IPC credential, SQLite queue and default policy. Service name is `TMAAgent`, `SERVICE_AUTO_START`, runs as `NT AUTHORITY\LocalService`, starts immediately and has restart recovery after 1 s, 5 s and 30 s. Service runs before logon; browser relay starts on demand when a browser connects. Install/repair/upgrade preserve local queue, enrollment, control-plane URL and IPC credential. Set `TMA_ROTATE_IPC_CREDENTIAL=1` only when intentional credential rotation is required.
+Installer creates `C:\Program Files\ThatMyAssets\Agent` and `C:\ProgramData\ThatMyAssets`, protected random IPC credential, SQLite queue and default policy. Service name is `TMAAgent`, `SERVICE_AUTO_START`, runs as `NT AUTHORITY\LocalService`, starts immediately and has restart recovery after 5 s, 15 s and 60 s. Service runs before logon; browser relay starts on demand when a browser connects. Install/repair/upgrade preserve local queue, enrollment, control-plane URL and IPC credential. Set `TMA_ROTATE_IPC_CREDENTIAL=1` only when intentional credential rotation is required. `TMA_EDGE_EXTENSION_ID` can additionally configure an Edge allowlist entry for CLI installation.
 
 Native host name is **`com.thatmyassets.dlp`**. Installer writes `%ProgramData%\ThatMyAssets\native-host.json` and HKLM Chrome/Edge NativeMessagingHosts keys. Empty extension allowlist denies all browsers. Set an actual packed/unpacked extension ID before expecting a connection; add a distinct Edge ID if needed:
 
