@@ -10,13 +10,15 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::SystemServices::SS_LEFTNOWORDWRAP;
 use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
 use windows_sys::Win32::UI::Controls::{
     InitCommonControlsEx, BST_CHECKED, ICC_PROGRESS_CLASS, INITCOMMONCONTROLSEX, PBM_SETPOS,
     PBS_SMOOTH,
 };
 use windows_sys::Win32::UI::HiDpi::{
-    GetDpiForWindow, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE,
+    AdjustWindowRectExForDpi, GetDpiForSystem, GetDpiForWindow, SetProcessDpiAwarenessContext,
+    DPI_AWARENESS_CONTEXT_SYSTEM_AWARE,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows_sys::Win32::UI::Shell::{
@@ -40,9 +42,12 @@ const ID_HEALTH: usize = 123;
 const ID_PROGRESS: usize = 124;
 const ID_STATUS: usize = 125;
 const WM_COMPLETE: u32 = WM_APP + 1;
-const BACKGROUND: u32 = 0x00f9_f6f2;
-const NAVY: u32 = 0x0034_231b;
-const INK: u32 = 0x0034_231b;
+const BACKGROUND: u32 = 0x00f8_f6f3;
+const SURFACE: u32 = 0x00ff_ffff;
+const BORDER: u32 = 0x00e4_deda;
+const HEADER: u32 = 0x0034_231b;
+const INK: u32 = 0x002b_201b;
+const MUTED: u32 = 0x006b_625c;
 
 #[derive(Clone)]
 enum Field {
@@ -59,8 +64,10 @@ struct Window {
     hwnd: HWND,
     fields: Vec<(Field, HWND)>,
     font: HFONT,
+    label_font: HFONT,
     title_font: HFONT,
     background: HBRUSH,
+    surface: HBRUSH,
     dpi: u32,
     busy: bool,
     events: Arc<Mutex<Receiver<Event>>>,
@@ -80,6 +87,8 @@ pub fn run() -> anyhow::Result<()> {
         InitCommonControlsEx(&controls);
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
     }
+    let dpi = unsafe { GetDpiForSystem().max(96) };
+    let scale = |value: i32| value * dpi as i32 / 96;
     let instance = unsafe { GetModuleHandleW(null()) };
     let class = wide(CLASS);
     let background = unsafe { CreateSolidBrush(BACKGROUND) };
@@ -105,14 +114,25 @@ pub fn run() -> anyhow::Result<()> {
     let mut bounds = RECT {
         left: 0,
         top: 0,
-        right: 820,
-        bottom: 650,
+        right: scale(840),
+        bottom: scale(680),
     };
     unsafe {
-        AdjustWindowRectEx(&mut bounds, style, 0, 0);
+        AdjustWindowRectExForDpi(&mut bounds, style, 0, 0, dpi);
     }
-    let x = (unsafe { GetSystemMetrics(SM_CXSCREEN) } - bounds.right + bounds.left) / 2;
-    let y = ((unsafe { GetSystemMetrics(SM_CYSCREEN) } - bounds.bottom + bounds.top) / 2).max(24);
+    let work_area = {
+        let mut area: RECT = unsafe { std::mem::zeroed() };
+        unsafe {
+            SystemParametersInfoW(SPI_GETWORKAREA, 0, &mut area as *mut RECT as *mut c_void, 0);
+        }
+        area
+    };
+    let screen_width = work_area.right - work_area.left;
+    let screen_height = work_area.bottom - work_area.top;
+    let width = (bounds.right - bounds.left).min(screen_width);
+    let height = (bounds.bottom - bounds.top).min(screen_height);
+    let x = work_area.left + (screen_width - width) / 2;
+    let y = work_area.top + ((screen_height - height) / 2).max(0);
     let hwnd = unsafe {
         CreateWindowExW(
             0,
@@ -121,8 +141,8 @@ pub fn run() -> anyhow::Result<()> {
             style,
             x,
             y,
-            bounds.right - bounds.left,
-            bounds.bottom - bounds.top,
+            width,
+            height,
             null_mut(),
             null_mut(),
             instance,
@@ -210,10 +230,13 @@ impl Window {
         width: i32,
         height: i32,
         field: Field,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<HWND> {
         let id = match field {
             Field::Action(id) | Field::Edit(id) | Field::Button(id) => id,
-            _ => 0,
+            Field::Progress => ID_PROGRESS,
+            Field::Status => ID_STATUS,
+            Field::Purge => ID_PURGE,
+            Field::Label => 0,
         };
         let hwnd = unsafe {
             CreateWindowExW(
@@ -238,25 +261,25 @@ impl Window {
             SendMessageW(hwnd, WM_SETFONT, self.font as usize, 1);
         }
         self.fields.push((field, hwnd));
-        Ok(())
+        Ok(hwnd)
     }
 
     fn initialize(&mut self) -> anyhow::Result<()> {
         self.control(
             "STATIC",
-            "01   Choose an action",
+            "01  Choose an action",
             0,
             0,
-            34,
-            106,
+            32,
+            112,
             400,
-            22,
+            20,
             Field::Label,
         )?;
         for (id, label, x) in [
-            (ID_INSTALL, "Install agent", 34),
-            (ID_REPAIR, "Repair / upgrade", 276),
-            (ID_UNINSTALL, "Uninstall", 518),
+            (ID_INSTALL, "Install agent", 32),
+            (ID_REPAIR, "Repair / upgrade", 284),
+            (ID_UNINSTALL, "Uninstall", 536),
         ] {
             self.control(
                 "BUTTON",
@@ -266,157 +289,152 @@ impl Window {
                     | if id == ID_INSTALL { WS_GROUP } else { 0 },
                 0,
                 x,
-                138,
-                220,
-                28,
+                139,
+                232,
+                30,
                 Field::Action(id),
             )?;
         }
         unsafe {
             SendMessageW(self.field(ID_INSTALL), BM_SETCHECK, BST_CHECKED as usize, 0);
         }
+
         self.control(
             "STATIC",
-            "02   Connect your endpoint",
+            "02  Connect your endpoint",
             0,
             0,
-            34,
-            182,
-            500,
-            22,
+            32,
+            190,
+            400,
+            20,
             Field::Label,
         )?;
-        self.control(
+        let url_label = self.control(
             "STATIC",
             "Control-plane URL",
             0,
             0,
-            34,
-            216,
-            350,
-            20,
+            32,
+            220,
+            376,
+            18,
             Field::Label,
         )?;
+        unsafe {
+            SendMessageW(url_label, WM_SETFONT, self.label_font as usize, 1);
+        }
         self.control(
             "EDIT",
             "",
             ES_AUTOHSCROLL as u32 | WS_TABSTOP | WS_GROUP,
             WS_EX_CLIENTEDGE,
-            34,
-            240,
-            750,
+            32,
+            242,
+            776,
             30,
             Field::Edit(ID_URL),
         )?;
-        self.control(
+        let code_label = self.control(
             "STATIC",
             "One-time pairing code",
             0,
             0,
-            34,
+            32,
             283,
-            350,
-            20,
+            376,
+            18,
             Field::Label,
         )?;
+        unsafe {
+            SendMessageW(code_label, WM_SETFONT, self.label_font as usize, 1);
+        }
         self.control(
             "EDIT",
             "",
             (ES_AUTOHSCROLL | ES_PASSWORD) as u32 | WS_TABSTOP,
             WS_EX_CLIENTEDGE,
-            34,
-            307,
-            750,
+            32,
+            305,
+            776,
             30,
             Field::Edit(ID_CODE),
         )?;
-        self.control(
-            "STATIC",
-            "Chrome extension ID",
-            0,
-            0,
-            34,
-            350,
-            350,
-            20,
-            Field::Label,
-        )?;
-        self.control(
-            "EDIT",
-            "",
-            ES_AUTOHSCROLL as u32 | WS_TABSTOP,
-            WS_EX_CLIENTEDGE,
-            34,
-            374,
-            360,
-            30,
-            Field::Edit(ID_CHROME),
-        )?;
-        self.control(
-            "STATIC",
-            "Edge extension ID (optional)",
-            0,
-            0,
-            424,
-            350,
-            350,
-            20,
-            Field::Label,
-        )?;
-        self.control(
-            "EDIT",
-            "",
-            ES_AUTOHSCROLL as u32 | WS_TABSTOP,
-            WS_EX_CLIENTEDGE,
-            424,
-            374,
-            360,
-            30,
-            Field::Edit(ID_EDGE),
-        )?;
+        for (id, label, x) in [
+            (ID_CHROME, "Chrome extension ID", 32),
+            (ID_EDGE, "Edge extension ID (optional)", 420),
+        ] {
+            let label_hwnd = self.control("STATIC", label, 0, 0, x, 346, 376, 18, Field::Label)?;
+            unsafe {
+                SendMessageW(label_hwnd, WM_SETFONT, self.label_font as usize, 1);
+            }
+            self.control(
+                "EDIT",
+                "",
+                ES_AUTOHSCROLL as u32 | WS_TABSTOP,
+                WS_EX_CLIENTEDGE,
+                x,
+                368,
+                388,
+                30,
+                Field::Edit(id),
+            )?;
+        }
         self.control(
             "BUTTON",
             "Also permanently erase local events, enrollment and policy (purge)",
-            BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
+            BS_AUTOCHECKBOX as u32 | WS_TABSTOP | WS_GROUP,
             0,
-            34,
-            419,
-            750,
-            28,
+            32,
+            410,
+            776,
+            26,
             Field::Purge,
         )?;
-        self.control("STATIC", "", 0, 0, 34, 462, 750, 38, Field::Status)?;
+
+        self.control(
+            "STATIC",
+            "03  Setup and health",
+            0,
+            0,
+            32,
+            455,
+            400,
+            20,
+            Field::Label,
+        )?;
+        self.control(
+            "STATIC",
+            "",
+            SS_LEFTNOWORDWRAP,
+            0,
+            32,
+            484,
+            776,
+            44,
+            Field::Status,
+        )?;
         self.control(
             "msctls_progress32",
             "",
             PBS_SMOOTH,
             0,
-            34,
-            510,
-            750,
-            12,
+            32,
+            536,
+            776,
+            8,
             Field::Progress,
         )?;
-        self.control(
-            "BUTTON",
-            "Install agent",
-            BS_DEFPUSHBUTTON as u32 | WS_TABSTOP,
-            0,
-            34,
-            546,
-            230,
-            42,
-            Field::Button(ID_START),
-        )?;
+
         self.control(
             "BUTTON",
             "Recheck health",
-            WS_TABSTOP,
+            WS_TABSTOP | WS_GROUP,
             0,
-            282,
-            546,
-            180,
-            42,
+            456,
+            582,
+            144,
+            36,
             Field::Button(ID_HEALTH),
         )?;
         self.control(
@@ -424,12 +442,24 @@ impl Window {
             "Close",
             WS_TABSTOP,
             0,
-            704,
-            546,
-            80,
-            42,
+            612,
+            582,
+            84,
+            36,
             Field::Button(ID_CLOSE),
         )?;
+        self.control(
+            "BUTTON",
+            "Install agent",
+            BS_DEFPUSHBUTTON as u32 | WS_TABSTOP,
+            0,
+            682,
+            582,
+            126,
+            36,
+            Field::Button(ID_START),
+        )?;
+
         for (id, variable) in [
             (ID_URL, "TMA_CONTROL_PLANE_URL"),
             (ID_CODE, "TMA_PAIRING_CODE"),
@@ -786,23 +816,35 @@ impl Window {
                 left: 0,
                 top: 0,
                 right: client.right,
-                bottom: self.scale(88),
+                bottom: self.scale(90),
             };
-            let brush = CreateSolidBrush(NAVY);
+            let brush = CreateSolidBrush(HEADER);
             FillRect(dc, &header, brush);
             DeleteObject(brush);
+            for (top, bottom) in [(99, 180), (179, 446), (444, 554)] {
+                let card = RECT {
+                    left: self.scale(24),
+                    top: self.scale(top),
+                    right: self.scale(816),
+                    bottom: self.scale(bottom),
+                };
+                FillRect(dc, &card, self.surface);
+                let border = CreateSolidBrush(BORDER);
+                FrameRect(dc, &card, border);
+                DeleteObject(border);
+            }
             SetBkMode(dc, TRANSPARENT as i32);
             SetTextColor(dc, 0x00ff_ffff);
             SelectObject(dc, self.title_font);
             let mut title = RECT {
-                left: self.scale(34),
-                top: self.scale(20),
-                right: self.scale(750),
-                bottom: self.scale(50),
+                left: self.scale(32),
+                top: self.scale(17),
+                right: self.scale(800),
+                bottom: self.scale(47),
             };
             DrawTextW(
                 dc,
-                wide("ThatMyAssets  /  AGENT").as_ptr(),
+                wide("ThatMyAssets Agent").as_ptr(),
                 -1,
                 &mut title,
                 DT_LEFT | DT_SINGLELINE | DT_VCENTER,
@@ -810,14 +852,14 @@ impl Window {
             SelectObject(dc, self.font);
             SetTextColor(dc, 0x00e5_d8c9);
             let mut subtitle = RECT {
-                left: self.scale(34),
-                top: self.scale(53),
-                right: self.scale(780),
-                bottom: self.scale(77),
+                left: self.scale(32),
+                top: self.scale(51),
+                right: self.scale(808),
+                bottom: self.scale(75),
             };
             DrawTextW(
                 dc,
-                wide("Windows endpoint setup · native messaging · text inspection").as_ptr(),
+                wide("Set up Windows endpoint protection and browser connections").as_ptr(),
                 -1,
                 &mut subtitle,
                 DT_LEFT | DT_SINGLELINE,
@@ -860,9 +902,11 @@ unsafe extern "system" fn window_proc(
         let state = Box::new(Window {
             hwnd,
             fields: Vec::new(),
-            font: make_font(dpi, 15, FW_NORMAL as i32),
-            title_font: make_font(dpi, 20, FW_SEMIBOLD as i32),
+            font: make_font(dpi, 16, FW_NORMAL as i32),
+            label_font: make_font(dpi, 16, FW_SEMIBOLD as i32),
+            title_font: make_font(dpi, 24, FW_SEMIBOLD as i32),
             background: CreateSolidBrush(BACKGROUND),
+            surface: CreateSolidBrush(SURFACE),
             dpi,
             busy: false,
             events: Arc::new(Mutex::new(receiver)),
@@ -900,8 +944,20 @@ unsafe extern "system" fn window_proc(
         }
         WM_CTLCOLORSTATIC => {
             SetBkMode(wparam as HDC, TRANSPARENT as i32);
+            SetTextColor(
+                wparam as HDC,
+                if lparam as HWND == state.field(ID_STATUS) {
+                    MUTED
+                } else {
+                    INK
+                },
+            );
+            state.surface as LRESULT
+        }
+        WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
+            SetBkColor(wparam as HDC, SURFACE);
             SetTextColor(wparam as HDC, INK);
-            state.background as LRESULT
+            state.surface as LRESULT
         }
         WM_ERASEBKGND => 1,
         WM_PAINT => {
@@ -923,8 +979,10 @@ unsafe extern "system" fn window_proc(
         }
         WM_DESTROY => {
             DeleteObject(state.font);
+            DeleteObject(state.label_font);
             DeleteObject(state.title_font);
             DeleteObject(state.background);
+            DeleteObject(state.surface);
             PostQuitMessage(0);
             0
         }
