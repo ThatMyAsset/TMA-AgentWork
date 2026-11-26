@@ -63,8 +63,8 @@ fn run() -> anyhow::Result<()> {
         }
         Command::Sync => {
             let agent = tma_agent::service::Agent::open(config, &data.join("events.db"))?;
-            agent.sync_once();
-            println!("synchronization attempted; inspect queue counts and service logs for transport status");
+            agent.sync_once()?;
+            println!("heartbeat, policy synchronization and queue upload completed");
         }
         Command::VerifyStore => {
             let store = tma_agent::store::Store::open(&data.join("events.db"))?;

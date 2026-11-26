@@ -10,7 +10,7 @@ fn agent() -> (tempfile::TempDir, Agent) {
         control_plane_url: None,
         enrollment_token: None,
         device_id: Some(Uuid::new_v4()),
-        device_token: None,
+        device_token: Some("device-token".into()),
         ipc_credential: "test-credential-that-is-long-enough".into(),
     };
     let agent = Agent::open(config, &directory.path().join("events.db")).unwrap();
@@ -119,4 +119,95 @@ fn health_is_not_protected_with_only_builtin_policy() {
     };
     assert_eq!(status, AgentStatus::Limited);
     assert_eq!(policy_version, Uuid::nil());
+}
+
+#[test]
+fn missing_enrollment_is_pending_and_health_does_not_mark_browser_connected() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = Config {
+        install_dir: directory.path().into(),
+        control_plane_url: None,
+        enrollment_token: None,
+        device_id: None,
+        device_token: None,
+        ipc_credential: "test-credential-that-is-long-enough".into(),
+    };
+    let agent = Agent::open(config, &directory.path().join("events.db")).unwrap();
+    assert_eq!(agent.status(), AgentStatus::PendingEnrollment);
+    let response = agent.handle(Request::Health {
+        request_id: Uuid::new_v4(),
+    });
+    let Response::Health {
+        status, connection, ..
+    } = response
+    else {
+        panic!("wrong response")
+    };
+    assert_eq!(status, AgentStatus::PendingEnrollment);
+    assert!(!connection.enrolled);
+    assert_eq!(connection.device_id, None);
+    assert!(!connection.control_plane_configured);
+}
+
+#[test]
+fn persisted_device_credentials_disable_enrollment_retry_and_survive_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("events.db");
+    let device_id = Uuid::new_v4();
+    let config = Config {
+        install_dir: directory.path().into(),
+        control_plane_url: Some("http://127.0.0.1:1".into()),
+        enrollment_token: Some("consumed-pairing-code".into()),
+        device_id: Some(device_id),
+        device_token: Some("device-token".into()),
+        ipc_credential: "test-credential-that-is-long-enough".into(),
+    };
+    let agent = Agent::open(config.clone(), &database).unwrap();
+    assert!(matches!(
+        agent.sync_once(),
+        Err(tma_agent::service::SyncError::Heartbeat(_))
+    ));
+    assert_eq!(agent.config.read().unwrap().device_id, Some(device_id));
+    assert_eq!(
+        agent.config.read().unwrap().enrollment_token.as_deref(),
+        Some("consumed-pairing-code")
+    );
+    drop(agent);
+    let reopened = Agent::open(config, &database).unwrap();
+    assert_eq!(reopened.connection_health().device_id, Some(device_id));
+    assert!(reopened.connection_health().enrolled);
+    assert!(matches!(
+        reopened.sync_once(),
+        Err(tma_agent::service::SyncError::Heartbeat(_))
+    ));
+}
+
+#[test]
+fn failed_enrollment_keeps_pairing_code_and_returns_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = Config {
+        install_dir: directory.path().into(),
+        control_plane_url: Some("http://127.0.0.1:1".into()),
+        enrollment_token: Some("retryable-pairing-code".into()),
+        device_id: None,
+        device_token: None,
+        ipc_credential: "test-credential-that-is-long-enough".into(),
+    };
+    let agent = Agent::open(config, &directory.path().join("events.db")).unwrap();
+    assert!(matches!(
+        agent.sync_once(),
+        Err(tma_agent::service::SyncError::NotEnrolled(_))
+    ));
+    let config = agent.config.read().unwrap();
+    assert_eq!(config.device_id, None);
+    assert_eq!(config.device_token, None);
+    assert_eq!(
+        config.enrollment_token.as_deref(),
+        Some("retryable-pairing-code")
+    );
+    drop(config);
+    assert_eq!(
+        agent.connection_health().control_plane_state,
+        tma_agent::service::ControlPlaneState::EnrollmentFailed
+    );
 }

@@ -451,28 +451,40 @@ mod installer {
             .arg("health")
             .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
             .output();
-        let status = output
+        let health = output
             .ok()
             .filter(|output| output.status.success())
-            .and_then(|output| {
-                serde_json::from_slice::<serde_json::Value>(&output.stdout)
-                    .ok()
-                    .and_then(|health| health["status"].as_str().map(str::to_owned))
-            });
-        let enrolled = std::fs::read(PathBuf::from(DATA_DIR).join("config.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-            .is_some_and(|config| config["device_token"].as_str().is_some())
-            || PathBuf::from(DATA_DIR).join("device-token").is_file();
-        let message = match status.as_deref() {
-            Some("protected") => "Protected: local health confirms policy readiness and a browser connection.".to_owned(),
-            Some("limited") if enrolled => "Service running and enrolled. Status: limited. Browser connection or policy readiness is still required.".to_owned(),
-            Some("limited") => "Service running. Status: limited. Waiting for enrollment and first policy synchronization.".to_owned(),
-            Some("pending_enrollment") => "Service running. Enrollment is pending; protection is not yet active.".to_owned(),
-            Some("degraded") => "Service running with degraded health. Protection is not confirmed; run tma-doctor health.".to_owned(),
-            _ => "Service running. Health is not yet available; enrollment and browser connection may be incomplete. Use Recheck health.".to_owned(),
+            .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok());
+        let status = health
+            .as_ref()
+            .and_then(|health| health["status"].as_str())
+            .unwrap_or("unavailable")
+            .to_owned();
+        let message = match health {
+            Some(health) => {
+                let connection = &health["connection"];
+                let enrolled = connection["enrolled"].as_bool().unwrap_or(false);
+                let configured = connection["control_plane_configured"].as_bool().unwrap_or(false);
+                let reachable = connection["control_plane_state"].as_str() == Some("connected");
+                if !configured {
+                    "Service running, but control plane URL is not configured. Enrollment and protection cannot connect.".to_owned()
+                } else if !enrolled {
+                    "Service running, but device enrollment is incomplete. Verify control plane connectivity and pairing code.".to_owned()
+                } else if !reachable {
+                    "Service running and enrolled, but control plane is unreachable or has not connected. Check network and control plane availability.".to_owned()
+                } else {
+                    match status.as_str() {
+                        "protected" => "Protected: control plane, valid policy and browser connection confirmed.".to_owned(),
+                        "limited" => "Service running, enrolled and control plane connected. Valid policy or browser connection is still required.".to_owned(),
+                        "pending_enrollment" => "Service running, but device credentials are incomplete. Re-enrollment is required.".to_owned(),
+                        "degraded" => "Service running with degraded health. Protection is not confirmed; run tma-doctor health.".to_owned(),
+                        _ => "Service running. Health is not yet available; use Recheck health.".to_owned(),
+                    }
+                }
+            }
+            None => "Service health is unavailable. Check that the agent service is running and local IPC is accessible.".to_owned(),
         };
-        (status.unwrap_or_else(|| "unavailable".into()), message)
+        (status, message)
     }
     fn wait_service_running(handle: SC_HANDLE, timeout: std::time::Duration) -> anyhow::Result<()> {
         let started = std::time::Instant::now();

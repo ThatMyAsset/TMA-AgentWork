@@ -1,3 +1,4 @@
+use crate::service::ConnectionHealth;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -111,6 +112,7 @@ pub enum Response {
         status: AgentStatus,
         agent_version: String,
         policy_version: Uuid,
+        connection: ConnectionHealth,
     },
     Inspection {
         request_id: Uuid,
