@@ -1,4 +1,4 @@
-use super::{health_report, wide, INSTALL_DIR};
+use super::{development_mode, health_report, wide, INSTALL_DIR};
 use crate::validation::{self, Configuration, Operation};
 use std::ffi::c_void;
 use std::path::Path;
@@ -542,9 +542,9 @@ impl Window {
                 self.text(ID_EDGE),
             );
             let result = if matches!(operation, Operation::Repair) {
-                validation::validate_repair_configuration(&url, &code, &chrome, &edge)
+                validation::validate_repair_configuration(&url, &code, &chrome, &edge, development_mode())
             } else {
-                validation::validate_configuration(&url, &code, &chrome, &edge)
+                validation::validate_configuration(&url, &code, &chrome, &edge, development_mode())
             };
             match result {
                 Ok(configuration) => Some(configuration),
