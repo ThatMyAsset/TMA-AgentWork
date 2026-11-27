@@ -37,8 +37,16 @@ pub struct Configuration {
     pub edge_extension_id: Option<String>,
 }
 
+pub fn development_mode_value(value: Option<&str>, existing: bool) -> bool {
+    match value.map(str::trim) {
+        Some(value) if value.eq_ignore_ascii_case("true") => true,
+        Some(value) if value.eq_ignore_ascii_case("false") => false,
+        _ => existing,
+    }
+}
+
 pub fn development_mode() -> bool {
-    std::env::var("TMA_DEVELOPMENT").is_ok_and(|value| value.eq_ignore_ascii_case("true"))
+    development_mode_value(std::env::var("TMA_DEVELOPMENT").ok().as_deref(), false)
 }
 
 pub fn validate_url(value: &str, development: bool) -> Result<String, &'static str> {
@@ -165,6 +173,15 @@ pub fn validate_repair_configuration(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn development_setting_preserves_existing_value_unless_explicitly_overridden() {
+        assert!(development_mode_value(None, true));
+        assert!(!development_mode_value(None, false));
+        assert!(development_mode_value(Some("true"), false));
+        assert!(!development_mode_value(Some("false"), true));
+        assert!(development_mode_value(Some("invalid"), true));
+    }
 
     #[test]
     fn accepts_https_and_trailing_slash() {
