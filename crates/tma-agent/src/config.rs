@@ -29,9 +29,9 @@ impl Config {
         }
         if let Some(url) = &config.control_plane_url {
             let parsed = http::Uri::try_from(url.as_str())?;
-            let development = config.development
-                || std::env::var("TMA_DEVELOPMENT")
-                    .is_ok_and(|value| value.eq_ignore_ascii_case("true"));
+            // The persisted installer profile is authoritative. A machine-wide
+            // environment variable must not silently weaken production URL checks.
+            let development = config.development;
             let secure = parsed.scheme_str() == Some("https");
             let http = parsed.scheme_str() == Some("http");
             let loopback = parsed
