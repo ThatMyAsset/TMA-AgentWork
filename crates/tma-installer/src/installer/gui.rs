@@ -397,7 +397,12 @@ impl Window {
         )?;
         if development_mode() {
             unsafe {
-                SendMessageW(self.field(ID_DEVELOPMENT), BM_SETCHECK, BST_CHECKED as usize, 0);
+                SendMessageW(
+                    self.field(ID_DEVELOPMENT),
+                    BM_SETCHECK,
+                    BST_CHECKED as usize,
+                    0,
+                );
             }
         }
         self.control(
@@ -559,9 +564,8 @@ impl Window {
         } else {
             operation
         };
-        let development = unsafe {
-            SendMessageW(self.field(ID_DEVELOPMENT), BM_GETCHECK, 0, 0)
-        } == BST_CHECKED as isize;
+        let development = unsafe { SendMessageW(self.field(ID_DEVELOPMENT), BM_GETCHECK, 0, 0) }
+            == BST_CHECKED as isize;
         let configuration = if operation.needs_configuration() {
             let (url, code, chrome, edge) = (
                 self.text(ID_URL),
@@ -643,7 +647,14 @@ impl Window {
                     std::env::set_var(variable, value);
                 }
             }
-            std::env::set_var("TMA_DEVELOPMENT", if configuration.development { "true" } else { "false" });
+            std::env::set_var(
+                "TMA_DEVELOPMENT",
+                if configuration.development {
+                    "true"
+                } else {
+                    "false"
+                },
+            );
             if let Some(edge) = &configuration.edge_extension_id {
                 std::env::set_var("TMA_EDGE_EXTENSION_ID", edge);
             }
