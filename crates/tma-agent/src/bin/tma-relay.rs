@@ -19,12 +19,12 @@ fn run() -> anyhow::Result<()> {
     #[cfg(windows)]
     {
         let mut service = tma_agent::platform::Pipe::client(std::time::Duration::from_secs(5))?;
-        return tma_agent::protocol::relay(
+        tma_agent::protocol::relay(
             &mut stdin,
             &mut stdout,
             &mut service,
             &config.ipc_credential,
-        );
+        )
     }
     #[cfg(not(windows))]
     anyhow::bail!("native messaging relay requires the Windows service")

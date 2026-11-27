@@ -35,10 +35,15 @@ pub struct Configuration {
     pub pairing_code: String,
     pub chrome_extension_id: String,
     pub edge_extension_id: Option<String>,
+    pub development: bool,
 }
 
-pub fn development_mode() -> bool {
-    std::env::var("TMA_DEVELOPMENT").is_ok_and(|value| value.eq_ignore_ascii_case("true"))
+pub fn development_mode_value(value: Option<&str>, existing: bool) -> bool {
+    match value.map(str::trim) {
+        Some(value) if value.eq_ignore_ascii_case("true") => true,
+        Some(value) if value.eq_ignore_ascii_case("false") => false,
+        _ => existing,
+    }
 }
 
 pub fn validate_url(value: &str, development: bool) -> Result<String, &'static str> {
@@ -128,6 +133,7 @@ pub fn validate_configuration(
         } else {
             Some(validate_extension_id(edge, "Edge")?)
         },
+        development,
     })
 }
 
@@ -159,12 +165,22 @@ pub fn validate_repair_configuration(
         } else {
             Some(edge.trim().to_owned())
         },
+        development,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn development_setting_preserves_existing_value_unless_explicitly_overridden() {
+        assert!(development_mode_value(None, true));
+        assert!(!development_mode_value(None, false));
+        assert!(development_mode_value(Some("true"), false));
+        assert!(!development_mode_value(Some("false"), true));
+        assert!(development_mode_value(Some("invalid"), true));
+    }
 
     #[test]
     fn accepts_https_and_trailing_slash() {
@@ -252,6 +268,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(config.edge_extension_id, None);
+        assert!(!config.development);
     }
 
     #[test]
@@ -261,10 +278,11 @@ mod tests {
         assert!(config.pairing_code.is_empty());
         assert!(config.chrome_extension_id.is_empty());
         assert_eq!(config.edge_extension_id, None);
+        assert!(!config.development);
         assert!(validate_repair_configuration("http://remote.test", "", "", "", false).is_err());
-        assert!(
-            validate_repair_configuration("http://43.157.201.52:18080", "", "", "", true).is_ok()
-        );
+        let development =
+            validate_repair_configuration("http://43.157.201.52:18080", "", "", "", true).unwrap();
+        assert!(development.development);
         assert!(validate_repair_configuration("", "short", "", "", false).is_err());
         assert!(validate_repair_configuration("", "", "invalid", "", false).is_err());
         assert!(validate_repair_configuration("", "", "", &"a".repeat(32), false).is_ok());

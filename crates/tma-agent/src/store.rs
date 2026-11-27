@@ -41,6 +41,23 @@ impl Store {
         })
     }
 
+    pub fn meta(&self, key: &str) -> anyhow::Result<Option<String>> {
+        self.connection
+            .query_row("SELECT value FROM meta WHERE key=?1", [key], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn set_meta(&self, key: &str, value: &str) -> anyhow::Result<()> {
+        self.connection.execute(
+            "INSERT INTO meta(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
     pub fn save_policy(&self, policy: &Policy) -> anyhow::Result<()> {
         crate::policy::validate(policy)?;
         self.connection.execute("INSERT INTO meta(key,value) VALUES('policy',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [serde_json::to_string(policy)?])?;
@@ -253,6 +270,32 @@ mod tests {
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].1.enforcement_status, EnforcementStatus::Prevented);
         assert!(due[0].1.enforcement_confirmed);
+    }
+
+    #[test]
+    fn metadata_survives_reopen_and_updates() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("queue.db");
+        {
+            let store = Store::open(&path).unwrap();
+            store.set_meta("connection_state", "\"connected\"").unwrap();
+            store
+                .set_meta("last_heartbeat", "2026-11-27T00:00:00Z")
+                .unwrap();
+            store
+                .set_meta("last_heartbeat", "2026-11-27T00:01:00Z")
+                .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        assert_eq!(
+            store.meta("connection_state").unwrap().as_deref(),
+            Some("\"connected\"")
+        );
+        assert_eq!(
+            store.meta("last_heartbeat").unwrap().as_deref(),
+            Some("2026-11-27T00:01:00Z")
+        );
+        assert_eq!(store.meta("missing").unwrap(), None);
     }
 
     #[test]

@@ -12,6 +12,7 @@ fn agent() -> (tempfile::TempDir, Agent) {
         device_id: Some(Uuid::new_v4()),
         device_token: Some("device-token".into()),
         ipc_credential: "test-credential-that-is-long-enough".into(),
+        development: false,
     };
     let agent = Agent::open(config, &directory.path().join("events.db")).unwrap();
     (directory, agent)
@@ -131,6 +132,7 @@ fn missing_enrollment_is_pending_and_health_does_not_mark_browser_connected() {
         device_id: None,
         device_token: None,
         ipc_credential: "test-credential-that-is-long-enough".into(),
+        development: false,
     };
     let agent = Agent::open(config, &directory.path().join("events.db")).unwrap();
     assert_eq!(agent.status(), AgentStatus::PendingEnrollment);
@@ -161,6 +163,7 @@ fn persisted_device_credentials_disable_enrollment_retry_and_survive_reopen() {
         device_id: Some(device_id),
         device_token: Some("device-token".into()),
         ipc_credential: "test-credential-that-is-long-enough".into(),
+        development: false,
     };
     let agent = Agent::open(config.clone(), &database).unwrap();
     assert!(matches!(
@@ -192,6 +195,7 @@ fn failed_enrollment_keeps_pairing_code_and_returns_error() {
         device_id: None,
         device_token: None,
         ipc_credential: "test-credential-that-is-long-enough".into(),
+        development: false,
     };
     let agent = Agent::open(config, &directory.path().join("events.db")).unwrap();
     assert!(matches!(

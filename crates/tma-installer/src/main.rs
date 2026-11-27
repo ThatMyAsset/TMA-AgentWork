@@ -78,6 +78,26 @@ mod installer {
         Ok(URL_SAFE_NO_PAD.encode(bytes))
     }
 
+    fn stored_development_mode() -> bool {
+        let path = Path::new(DATA_DIR).join("config.json");
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|value| {
+                value
+                    .get("development")
+                    .and_then(serde_json::Value::as_bool)
+            })
+            .unwrap_or(false)
+    }
+
+    fn development_mode() -> bool {
+        validation::development_mode_value(
+            std::env::var("TMA_DEVELOPMENT").ok().as_deref(),
+            stored_development_mode(),
+        )
+    }
+
     struct ScHandle(SC_HANDLE);
     impl Drop for ScHandle {
         fn drop(&mut self) {
@@ -189,14 +209,20 @@ mod installer {
             "--worker" => {
                 let operation = args.next().context("worker operation required")?;
                 let report = args.next().context("worker report path required")?;
-                let purge = args.next().as_deref() == Some("--purge");
+                let worker_options: Vec<_> = args.collect();
+                let purge = worker_options.iter().any(|arg| arg == "--purge");
+                if worker_options.iter().any(|arg| arg == "--development") {
+                    std::env::set_var("TMA_DEVELOPMENT", "true");
+                } else if worker_options.iter().any(|arg| arg == "--production") {
+                    std::env::set_var("TMA_DEVELOPMENT", "false");
+                }
                 let report = std::fs::OpenOptions::new()
                     .append(true)
                     .open(report)
                     .context("opening setup progress report")?;
                 let _ = WORKER_OUTPUT.set(Mutex::new(report));
                 if operation != "uninstall" {
-                    let development = validation::development_mode();
+                    let development = development_mode();
                     for variable in ["TMA_CONTROL_PLANE_URL", "TMA_PAIRING_CODE", "TMA_CHROME_EXTENSION_ID", "TMA_EDGE_EXTENSION_ID"] {
                         if let Ok(value) = std::env::var(variable) {
                             if !value.is_empty() {
@@ -238,7 +264,7 @@ mod installer {
                 }
             }
             "install" | "repair" | "upgrade" => {
-                let development = validation::development_mode();
+                let development = development_mode();
                 if let Ok(url) = std::env::var("TMA_CONTROL_PLANE_URL") {
                     if !url.is_empty() {
                         validation::validate_url(&url, development).map_err(|error| anyhow::anyhow!(error))?;
@@ -357,7 +383,7 @@ mod installer {
         {
             config["ipc_credential"] = serde_json::Value::String(random_credential()?);
         }
-        config["development"] = serde_json::Value::Bool(validation::development_mode());
+        config["development"] = serde_json::Value::Bool(development_mode());
         if let Ok(url) = std::env::var("TMA_CONTROL_PLANE_URL") {
             if !url.is_empty() {
                 config["control_plane_url"] = serde_json::Value::String(url);
