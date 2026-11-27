@@ -10,7 +10,6 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::SystemServices::SS_LEFTNOWORDWRAP;
 use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
 use windows_sys::Win32::UI::Controls::{
     InitCommonControlsEx, BST_CHECKED, ICC_PROGRESS_CLASS, INITCOMMONCONTROLSEX, PBM_SETPOS,
@@ -116,8 +115,8 @@ pub fn run() -> anyhow::Result<()> {
     let mut bounds = RECT {
         left: 0,
         top: 0,
-        right: scale(840),
-        bottom: scale(680),
+        right: scale(760),
+        bottom: scale(640),
     };
     unsafe {
         AdjustWindowRectExForDpi(&mut bounds, style, 0, 0, dpi);
@@ -172,6 +171,10 @@ pub fn run() -> anyhow::Result<()> {
 impl Window {
     fn scale(&self, value: i32) -> i32 {
         value * self.dpi as i32 / 96
+    }
+
+    fn scale_x(&self, value: i32) -> i32 {
+        self.scale(value * 9 / 10)
     }
 
     fn field(&self, id: usize) -> HWND {
@@ -248,9 +251,9 @@ impl Window {
                 wide(class).as_ptr(),
                 wide(text).as_ptr(),
                 WS_CHILD | WS_VISIBLE | style,
-                self.scale(x),
+                self.scale_x(x),
                 self.scale(y),
-                self.scale(width),
+                self.scale_x(width),
                 self.scale(height),
                 self.hwnd,
                 id as *mut c_void,
@@ -428,17 +431,7 @@ impl Window {
             20,
             Field::Label,
         )?;
-        self.control(
-            "STATIC",
-            "",
-            SS_LEFTNOWORDWRAP,
-            0,
-            32,
-            509,
-            776,
-            44,
-            Field::Status,
-        )?;
+        self.control("STATIC", "", 0, 0, 32, 509, 776, 44, Field::Status)?;
         self.control(
             "msctls_progress32",
             "",
@@ -822,7 +815,19 @@ impl Window {
                         );
                     }
                     self.update_mode();
-                    self.set_text(ID_STATUS, &detail);
+                    let status_text = match status.as_str() {
+                        "protected" => format!("✓ Protection active — {detail}"),
+                        "removed" => format!("✓ Agent removed — {detail}"),
+                        "limited" | "pending_enrollment" | "degraded" | "unavailable" => {
+                            format!("! Setup finished; protection is not active — {detail}")
+                        }
+                        "error" => format!("Setup failed — {detail}"),
+                        _ => detail.clone(),
+                    };
+                    self.set_text(ID_STATUS, &status_text);
+                    unsafe {
+                        InvalidateRect(self.field(ID_STATUS), null(), 1);
+                    }
                     if status == "error" {
                         self.error(&detail);
                     }
@@ -862,9 +867,9 @@ impl Window {
             DeleteObject(brush);
             for (top, bottom) in [(99, 180), (179, 446), (444, 554)] {
                 let card = RECT {
-                    left: self.scale(24),
+                    left: self.scale_x(24),
                     top: self.scale(top),
-                    right: self.scale(816),
+                    right: client.right - self.scale_x(24),
                     bottom: self.scale(bottom),
                 };
                 FillRect(dc, &card, self.surface);
@@ -876,9 +881,9 @@ impl Window {
             SetTextColor(dc, 0x00ff_ffff);
             SelectObject(dc, self.title_font);
             let mut title = RECT {
-                left: self.scale(32),
+                left: self.scale_x(32),
                 top: self.scale(17),
-                right: self.scale(800),
+                right: client.right - self.scale_x(32),
                 bottom: self.scale(47),
             };
             DrawTextW(
@@ -891,9 +896,9 @@ impl Window {
             SelectObject(dc, self.font);
             SetTextColor(dc, 0x00e5_d8c9);
             let mut subtitle = RECT {
-                left: self.scale(32),
+                left: self.scale_x(32),
                 top: self.scale(51),
-                right: self.scale(808),
+                right: client.right - self.scale_x(32),
                 bottom: self.scale(75),
             };
             DrawTextW(
@@ -941,9 +946,9 @@ unsafe extern "system" fn window_proc(
         let state = Box::new(Window {
             hwnd,
             fields: Vec::new(),
-            font: make_font(dpi, 16, FW_NORMAL as i32),
-            label_font: make_font(dpi, 16, FW_SEMIBOLD as i32),
-            title_font: make_font(dpi, 24, FW_SEMIBOLD as i32),
+            font: make_font(dpi, 14, FW_NORMAL as i32),
+            label_font: make_font(dpi, 14, FW_SEMIBOLD as i32),
+            title_font: make_font(dpi, 22, FW_SEMIBOLD as i32),
             background: CreateSolidBrush(BACKGROUND),
             surface: CreateSolidBrush(SURFACE),
             dpi,
@@ -986,7 +991,14 @@ unsafe extern "system" fn window_proc(
             SetTextColor(
                 wparam as HDC,
                 if lparam as HWND == state.field(ID_STATUS) {
-                    MUTED
+                    let status = state.text(ID_STATUS);
+                    if status.starts_with('✓') {
+                        0x0037_704f
+                    } else if status.starts_with('!') {
+                        0x0008_5e86
+                    } else {
+                        MUTED
+                    }
                 } else {
                     INK
                 },
