@@ -83,7 +83,11 @@ mod installer {
         std::fs::read_to_string(path)
             .ok()
             .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-            .and_then(|value| value.get("development").and_then(serde_json::Value::as_bool))
+            .and_then(|value| {
+                value
+                    .get("development")
+                    .and_then(serde_json::Value::as_bool)
+            })
             .unwrap_or(false)
     }
 
