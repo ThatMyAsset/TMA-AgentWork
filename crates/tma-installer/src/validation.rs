@@ -281,8 +281,7 @@ mod tests {
         assert!(!config.development);
         assert!(validate_repair_configuration("http://remote.test", "", "", "", false).is_err());
         let development =
-            validate_repair_configuration("http://43.157.201.52:18080", "", "", "", true)
-                .unwrap();
+            validate_repair_configuration("http://43.157.201.52:18080", "", "", "", true).unwrap();
         assert!(development.development);
         assert!(validate_repair_configuration("", "short", "", "", false).is_err());
         assert!(validate_repair_configuration("", "", "invalid", "", false).is_err());
