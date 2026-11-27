@@ -475,14 +475,42 @@ mod installer {
         if !install.join("tma-doctor.exe").is_file() {
             return ("unavailable".into(), "Agent is not installed or its diagnostic binary is missing. Protection is not confirmed.".into());
         }
-        let output = std::process::Command::new(install.join("tma-doctor.exe"))
-            .arg("health")
-            .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
-            .output();
-        let health = output
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok());
+        // Service startup and its first successful heartbeat/policy fetch are
+        // asynchronous. Keep checking until the endpoint is actually enrolled
+        // and synced instead of reporting a transient startup state as failure.
+        let started = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(30);
+        let mut health = None;
+        let mut doctor_error = None;
+        loop {
+            match std::process::Command::new(install.join("tma-doctor.exe"))
+                .arg("health")
+                .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
+                .output()
+            {
+                Ok(output) if output.status.success() => {
+                    health = serde_json::from_slice::<serde_json::Value>(&output.stdout).ok();
+                    if health.is_none() {
+                        doctor_error = Some("Agent returned an invalid health report.".to_owned());
+                    }
+                }
+                Ok(output) => {
+                    let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+                    doctor_error = (!detail.is_empty()).then_some(detail);
+                }
+                Err(error) => doctor_error = Some(error.to_string()),
+            }
+            let connected = health.as_ref().is_some_and(|report| {
+                report["connection"]["enrolled"].as_bool() == Some(true)
+                    && report["connection"]["control_plane_state"].as_str() == Some("connected")
+                    && report["connection"]["last_heartbeat"].as_str().is_some()
+                    && report["connection"]["last_policy_sync"].as_str().is_some()
+            });
+            if connected || started.elapsed() >= timeout {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
         let status = health
             .as_ref()
             .and_then(|health| health["status"].as_str())
@@ -514,7 +542,8 @@ mod installer {
                 }
                 message
             }
-            None => "Service health is unavailable. Check that the agent service is running and local IPC is accessible.".to_owned(),
+            None => doctor_error.map(|error| format!("Agent health check failed: {error}"))
+                .unwrap_or_else(|| "Agent did not return a valid health report. Check that its service is running and local IPC is accessible.".to_owned()),
         };
         (status, message)
     }

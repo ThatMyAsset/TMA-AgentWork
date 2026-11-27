@@ -56,7 +56,7 @@ mod windows {
     use std::time::Duration;
     use windows_sys::Win32::Foundation::{
         CloseHandle, LocalFree, ERROR_PIPE_BUSY, GENERIC_READ, GENERIC_WRITE, HANDLE,
-        INVALID_HANDLE_VALUE,
+        INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
     };
     use windows_sys::Win32::Security::Authorization::{
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SetNamedSecurityInfoW,
@@ -72,6 +72,8 @@ mod windows {
         PIPE_TYPE_BYTE, PIPE_WAIT,
     };
     use windows_sys::Win32::System::Services::*;
+    use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+    use windows_sys::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
 
     pub fn wide(value: impl AsRef<OsStr>) -> Vec<u16> {
         value.as_ref().encode_wide().chain(Some(0)).collect()
@@ -138,13 +140,46 @@ mod windows {
             })
         }
         pub fn connect(&self) -> anyhow::Result<()> {
-            if unsafe { ConnectNamedPipe(self.handle.0, null_mut()) } == 0 {
-                let error = std::io::Error::last_os_error();
-                if error.raw_os_error() != Some(535) {
-                    return Err(error.into());
-                }
+            // The pipe handle is created with FILE_FLAG_OVERLAPPED, so Windows
+            // requires an OVERLAPPED structure here. Passing null makes the
+            // service fail before it can accept any local health request.
+            let event = unsafe { CreateEventW(null(), 1, 0, null()) };
+            if event.is_null() {
+                bail!(
+                    "CreateEventW for named pipe: {}",
+                    std::io::Error::last_os_error()
+                )
             }
-            Ok(())
+            let event = OwnedHandle(event);
+            let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
+            overlapped.hEvent = event.0;
+            if unsafe { ConnectNamedPipe(self.handle.0, &mut overlapped) } != 0 {
+                return Ok(());
+            }
+            let error = std::io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(535) => Ok(()), // ERROR_PIPE_CONNECTED: client won the race.
+                Some(997) => {
+                    if unsafe { WaitForSingleObject(event.0, u32::MAX) } != WAIT_OBJECT_0 {
+                        bail!(
+                            "waiting for named pipe client: {}",
+                            std::io::Error::last_os_error()
+                        )
+                    }
+                    let mut transferred = 0;
+                    if unsafe {
+                        GetOverlappedResult(self.handle.0, &overlapped, &mut transferred, 0)
+                    } == 0
+                    {
+                        bail!(
+                            "finishing named pipe connection: {}",
+                            std::io::Error::last_os_error()
+                        )
+                    }
+                    Ok(())
+                }
+                _ => Err(error.into()),
+            }
         }
         pub fn disconnect(&self) {
             unsafe {
