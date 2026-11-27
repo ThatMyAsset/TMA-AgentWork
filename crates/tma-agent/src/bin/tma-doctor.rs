@@ -53,6 +53,7 @@ fn run() -> anyhow::Result<()> {
         Command::Health => {
             let request = Request::Health {
                 request_id: Uuid::new_v4(),
+                browser: false,
             };
             let response = ipc(&config, &request)?;
             println!("{}", serde_json::to_string_pretty(&response)?);

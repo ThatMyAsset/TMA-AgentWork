@@ -92,6 +92,7 @@ fn run_server() -> anyhow::Result<()> {
     agent.sync_once()?;
     let response = agent.handle(tma_agent::model::Request::Health {
         request_id: uuid::Uuid::new_v4(),
+        browser: false,
     });
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())

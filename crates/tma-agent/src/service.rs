@@ -115,8 +115,13 @@ impl Agent {
 
     pub fn handle(&self, request: Request) -> Response {
         match request {
-            Request::Health { request_id } => {
-                self.browser_connected.store(true, Ordering::Relaxed);
+            Request::Health {
+                request_id,
+                browser,
+            } => {
+                if browser {
+                    self.browser_connected.store(true, Ordering::Relaxed);
+                }
                 let policy_version = self
                     .store
                     .lock()
@@ -375,7 +380,7 @@ impl Agent {
     pub fn run_sync_loop(self: &Arc<Self>, stopping: Arc<AtomicBool>) {
         while !stopping.load(Ordering::Relaxed) {
             let _ = self.sync_once();
-            for _ in 0..30 {
+            for _ in 0..10 {
                 if stopping.load(Ordering::Relaxed) {
                     return;
                 }

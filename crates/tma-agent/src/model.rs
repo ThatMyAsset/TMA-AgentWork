@@ -95,6 +95,8 @@ pub enum Request {
     },
     Health {
         request_id: Uuid,
+        #[serde(default)]
+        browser: bool,
     },
     EnforcementResult {
         request_id: Uuid,

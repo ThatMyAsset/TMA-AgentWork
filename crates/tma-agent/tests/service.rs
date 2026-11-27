@@ -109,6 +109,7 @@ fn health_is_not_protected_with_only_builtin_policy() {
     let (_directory, agent) = agent();
     let response = agent.handle(Request::Health {
         request_id: Uuid::new_v4(),
+        browser: false,
     });
     let Response::Health {
         status,
@@ -138,6 +139,7 @@ fn missing_enrollment_is_pending_and_health_does_not_mark_browser_connected() {
     assert_eq!(agent.status(), AgentStatus::PendingEnrollment);
     let response = agent.handle(Request::Health {
         request_id: Uuid::new_v4(),
+        browser: false,
     });
     let Response::Health {
         status, connection, ..

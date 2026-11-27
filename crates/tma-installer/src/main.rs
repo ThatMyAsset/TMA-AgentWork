@@ -462,7 +462,7 @@ mod installer {
         let health = health_report(&install);
         emit("result", &health.0, &health.1);
         println!("{}", health.1);
-        println!("Native host {HOST_NAME} registered for Chrome and Edge.");
+        println!("Native host {HOST_NAME} registered for Chromium and Firefox.");
         Ok(())
     }
 

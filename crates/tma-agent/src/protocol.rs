@@ -188,6 +188,7 @@ mod tests {
     fn native_frame_is_unsigned_little_endian() {
         let request = Request::Health {
             request_id: Uuid::nil(),
+            browser: false,
         };
         let frame = encode(&request).unwrap();
         let expected = (frame.len() - 4) as u32;

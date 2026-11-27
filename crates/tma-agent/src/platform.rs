@@ -181,7 +181,7 @@ mod windows {
                     });
                 }
                 let error = std::io::Error::last_os_error();
-                if error.raw_os_error() != Some(ERROR_PIPE_BUSY as i32)
+                if !matches!(error.raw_os_error(), Some(value) if value == ERROR_PIPE_BUSY as i32 || value == 2 || value == 3)
                     || started.elapsed() >= timeout
                 {
                     return Err(error.into());
