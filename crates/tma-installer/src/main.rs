@@ -386,6 +386,10 @@ mod installer {
         }
         if let Ok(code) = std::env::var("TMA_PAIRING_CODE") {
             if !code.is_empty() {
+                // Supplying a new one-time code to Repair explicitly starts a new enrollment.
+                config["device_id"] = serde_json::Value::Null;
+                config["device_token"] = serde_json::Value::Null;
+                let _ = std::fs::remove_file(data.join("device-token"));
                 let code_path = data.join("pairing-code");
                 std::fs::write(&code_path, code.as_bytes())?;
                 acl(&code_path, false)?;
@@ -490,7 +494,7 @@ mod installer {
                 let enrolled = connection["enrolled"].as_bool().unwrap_or(false);
                 let configured = connection["control_plane_configured"].as_bool().unwrap_or(false);
                 let reachable = connection["control_plane_state"].as_str() == Some("connected");
-                if !configured {
+                let mut message = if !configured {
                     "Service running, but control plane URL is not configured. Enrollment and protection cannot connect.".to_owned()
                 } else if !enrolled {
                     "Service running, but device enrollment is incomplete. Verify control plane connectivity and pairing code.".to_owned()
@@ -504,7 +508,11 @@ mod installer {
                         "degraded" => "Service running with degraded health. Protection is not confirmed; run tma-doctor health.".to_owned(),
                         _ => "Service running. Health is not yet available; use Recheck health.".to_owned(),
                     }
+                };
+                if let Some(error) = connection["last_sync_error"].as_str().filter(|value| !value.is_empty()) {
+                    message.push_str(&format!(" Last agent sync error: {error}"));
                 }
+                message
             }
             None => "Service health is unavailable. Check that the agent service is running and local IPC is accessible.".to_owned(),
         };

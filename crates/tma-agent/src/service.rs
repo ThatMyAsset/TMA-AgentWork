@@ -33,6 +33,7 @@ pub struct ConnectionHealth {
     pub control_plane_state: ControlPlaneState,
     pub last_heartbeat: Option<String>,
     pub last_policy_sync: Option<String>,
+    pub last_sync_error: Option<String>,
 }
 
 #[derive(Debug)]
@@ -73,9 +74,25 @@ impl Agent {
     }
 
     pub fn status(&self) -> AgentStatus {
-        let config = self.config.read().unwrap();
+        let config = self.config.read().unwrap().clone();
         if config.device_id.is_none() || config.device_token.is_none() {
             return AgentStatus::PendingEnrollment;
+        }
+        let connection = self.connection_health();
+        let fresh = |value: &Option<String>| {
+            value
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .is_some_and(|time| {
+                    let age = chrono::Utc::now().signed_duration_since(time);
+                    age.num_seconds() <= 120 && age.num_seconds() >= -60
+                })
+        };
+        if connection.control_plane_state != ControlPlaneState::Connected
+            || !fresh(&connection.last_heartbeat)
+            || !fresh(&connection.last_policy_sync)
+        {
+            return AgentStatus::Degraded;
         }
         let ready = self
             .store
@@ -110,6 +127,11 @@ impl Agent {
                 }),
             last_heartbeat: store.meta("last_heartbeat").ok().flatten(),
             last_policy_sync: store.meta("last_policy_sync").ok().flatten(),
+            last_sync_error: store
+                .meta("last_sync_error")
+                .ok()
+                .flatten()
+                .filter(|error| !error.is_empty()),
         }
     }
 
@@ -296,6 +318,21 @@ impl Agent {
     }
 
     pub fn sync_once(&self) -> Result<(), SyncError> {
+        let result = self.sync_once_inner();
+        let message = result
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let _ = self
+            .store
+            .lock()
+            .unwrap()
+            .set_meta("last_sync_error", &message);
+        result
+    }
+
+    fn sync_once_inner(&self) -> Result<(), SyncError> {
         let config = self.enroll_if_needed()?;
         let (Some(url), Some(token)) = (&config.control_plane_url, &config.device_token) else {
             return Err(SyncError::NotConfigured);

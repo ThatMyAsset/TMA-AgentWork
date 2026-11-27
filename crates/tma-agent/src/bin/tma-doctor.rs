@@ -83,11 +83,8 @@ fn run() -> anyhow::Result<()> {
 #[cfg(windows)]
 fn ipc(config: &tma_agent::config::Config, request: &Request) -> anyhow::Result<Response> {
     let mut pipe = tma_agent::platform::Pipe::client(std::time::Duration::from_secs(5))?;
-    let body = serde_json::to_vec(request)?;
-    let auth = tma_agent::protocol::request_authenticator(&config.ipc_credential, &body);
-    let mut value = serde_json::to_value(request)?;
-    value["auth"] = serde_json::Value::String(auth);
-    tma_agent::protocol::write_frame(&mut pipe, &serde_json::to_vec(&value)?)?;
+    let body = tma_agent::protocol::authenticated_request(request, &config.ipc_credential)?;
+    tma_agent::protocol::write_frame(&mut pipe, &body)?;
     let body = tma_agent::protocol::read_frame(&mut pipe)?
         .ok_or_else(|| anyhow::anyhow!("service closed connection"))?;
     Ok(serde_json::from_slice(&body)?)

@@ -54,7 +54,7 @@ Native host name is **`com.thatmyassets.dlp`**. Installer writes `%ProgramData%\
 .\dist\setup.exe register-extension <chromium-extension-id> [firefox-addon-id]
 ```
 
-Service pairing is performed at first synchronization using the one-time code. Pairing code and device token are not command-line arguments, events or logs. Device token is stored in ACL-protected `%ProgramData%\ThatMyAssets\device-token`; only service, LocalService, SYSTEM and Administrators can read it. Set `TMA_DEVELOPMENT=true` for direct HTTP control-plane URLs; the installer stores this as `development:true` in `config.json`, or an existing config can set that field directly. **Development only:** plain HTTP exposes enrollment and device traffic on the network. Use HTTPS in production; without development mode, HTTP remains restricted to loopback.
+Service pairing is performed at first synchronization using the one-time code. In Repair / upgrade, entering a fresh pairing code explicitly clears stored device credentials and enrolls the endpoint again; leaving it blank preserves the current enrollment. Pairing code and device token are not command-line arguments, events or logs. Device token is stored in ACL-protected `%ProgramData%\ThatMyAssets\device-token`; only service, LocalService, SYSTEM and Administrators can read it. Set `TMA_DEVELOPMENT=true` for direct HTTP control-plane URLs; the installer stores this as `development:true` in `config.json`, or an existing config can set that field directly. **Development only:** plain HTTP exposes enrollment and device traffic on the network. Use HTTPS in production; without development mode, HTTP remains restricted to loopback.
 
 ## Diagnostics and local operation
 

@@ -115,6 +115,13 @@ fn canonical_request(mut value: Value) -> anyhow::Result<Vec<u8>> {
     Ok(serde_json::to_vec(&value)?)
 }
 
+pub fn authenticated_request(request: &Request, credential: &str) -> anyhow::Result<Vec<u8>> {
+    let mut value = serde_json::to_value(request)?;
+    let canonical = canonical_request(value.clone())?;
+    value["auth"] = Value::String(request_authenticator(credential, &canonical));
+    Ok(serde_json::to_vec(&value)?)
+}
+
 fn authenticated(body: &[u8], credential: &str) -> anyhow::Result<Vec<u8>> {
     let mut value: Value = serde_json::from_slice(body)?;
     let auth = value
