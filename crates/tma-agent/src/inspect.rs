@@ -4,7 +4,69 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::path::Path;
 
 pub const TEXT_EXTENSIONS: &[&str] = &[
-    "txt", "csv", "json", "xml", "yaml", "yml", "log", "env", "sql", "py", "js", "ts", "go", "rs",
+    "txt",
+    "md",
+    "markdown",
+    "mdx",
+    "rst",
+    "csv",
+    "tsv",
+    "json",
+    "jsonl",
+    "ndjson",
+    "xml",
+    "html",
+    "htm",
+    "yaml",
+    "yml",
+    "toml",
+    "ini",
+    "conf",
+    "config",
+    "properties",
+    "log",
+    "env",
+    "sql",
+    "py",
+    "js",
+    "jsx",
+    "mjs",
+    "cjs",
+    "ts",
+    "tsx",
+    "go",
+    "rs",
+    "c",
+    "h",
+    "cc",
+    "cpp",
+    "hpp",
+    "hxx",
+    "cs",
+    "java",
+    "kt",
+    "kts",
+    "swift",
+    "php",
+    "rb",
+    "sh",
+    "bash",
+    "zsh",
+    "ps1",
+    "bat",
+    "cmd",
+    "css",
+    "scss",
+    "less",
+    "vue",
+    "svelte",
+    "tf",
+    "tfvars",
+    "hcl",
+    "dockerignore",
+    "gitignore",
+    "dockerfile",
+    "makefile",
 ];
 
 #[derive(Debug)]
@@ -75,10 +137,18 @@ pub fn inspect_file(file: &FileInput) -> Inspection {
         file_size: size,
         sha256: sha256.clone(),
     };
+    let lower_name = name.to_ascii_lowercase();
     let extension = Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
-        .or_else(|| name.eq_ignore_ascii_case(".env").then_some("env"));
+        .or_else(|| match lower_name.as_str() {
+            ".env" => Some("env"),
+            ".gitignore" => Some("gitignore"),
+            ".dockerignore" => Some("dockerignore"),
+            "dockerfile" => Some("dockerfile"),
+            "makefile" => Some("makefile"),
+            _ => None,
+        });
     let supported = extension.is_some_and(|extension| {
         TEXT_EXTENSIONS
             .iter()

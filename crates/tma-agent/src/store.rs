@@ -247,6 +247,7 @@ mod tests {
             findings: vec![],
             risk_score: 100,
             policy_version: Uuid::new_v4(),
+            policy_name: "Baseline protection".into(),
         }
     }
 

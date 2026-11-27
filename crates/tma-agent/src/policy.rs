@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 pub fn defaults() -> Policy {
     Policy {
+        name: "Baseline protection".into(),
         version: Uuid::nil(),
         generated_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
             .unwrap()

@@ -23,6 +23,7 @@ pub enum ControlPlaneState {
     Connected,
     Unreachable,
     EnrollmentFailed,
+    Revoked,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
@@ -212,6 +213,7 @@ impl Agent {
                             findings: vec![],
                             risk_score: 100,
                             policy_version: policy.version,
+                            policy_name: policy.name.clone(),
                         });
                         return Response::Inspection {
                             request_id,
@@ -246,12 +248,23 @@ impl Agent {
                         inspection.findings.clear();
                     }
                 }
-                let (decision, risk_score) = crate::policy::decide(
-                    &policy,
-                    &provider,
-                    inspection.status,
-                    &inspection.findings,
-                );
+                let revoked = store
+                    .meta("connection_state")
+                    .ok()
+                    .flatten()
+                    .is_some_and(|state| state == "\"revoked\"");
+                let (decision, risk_score) = if revoked {
+                    inspection.status = InspectionStatus::Failed;
+                    inspection.findings.clear();
+                    (Action::Block, 100)
+                } else {
+                    crate::policy::decide(
+                        &policy,
+                        &provider,
+                        inspection.status,
+                        &inspection.findings,
+                    )
+                };
                 let event_id = Uuid::new_v4();
                 let event = SecurityEvent {
                     event_id,
@@ -271,6 +284,7 @@ impl Agent {
                     findings: inspection.findings.clone(),
                     risk_score,
                     policy_version: policy.version,
+                    policy_name: policy.name.clone(),
                 };
                 if let Err(error) = store.enqueue(&event) {
                     return Response::Error {
@@ -341,8 +355,14 @@ impl Agent {
             token,
             self.status(),
             self.browser_connected.load(Ordering::Relaxed),
-        )
-        .map_err(|error| {
+        );
+        let heartbeat = heartbeat.map_err(|error| {
+            if is_revoked_response(&error) {
+                self.record_connection_state(ControlPlaneState::Revoked);
+                return SyncError::NotEnrolled(
+                    "endpoint access was revoked by an administrator".into(),
+                );
+            }
             self.record_connection_state(ControlPlaneState::Unreachable);
             SyncError::Heartbeat(error)
         })?;
@@ -353,12 +373,21 @@ impl Agent {
                 .map_err(SyncError::Heartbeat)?;
         }
         let policy = crate::control_plane::fetch_policy(url, token).map_err(|error| {
+            if is_revoked_response(&error) {
+                self.record_connection_state(ControlPlaneState::Revoked);
+                return SyncError::NotEnrolled(
+                    "endpoint access was revoked by an administrator".into(),
+                );
+            }
             self.record_connection_state(ControlPlaneState::Unreachable);
             SyncError::Policy(error)
         })?;
         {
             let store = self.store.lock().unwrap();
-            if store.policy().map(|p| p.version).ok() != Some(policy.version) {
+            let current = store.policy().ok();
+            if current.as_ref().map_or(true, |current| {
+                current.version != policy.version || current.generated_at != policy.generated_at
+            }) {
                 store.save_policy(&policy).map_err(SyncError::Policy)?;
             }
             store
@@ -424,4 +453,11 @@ impl Agent {
             }
         }
     }
+}
+
+fn is_revoked_response(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<ureq::Error>(),
+        Some(ureq::Error::Status(401 | 403, _))
+    )
 }

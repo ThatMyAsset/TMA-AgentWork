@@ -172,6 +172,8 @@ fn default_allowed_file_types() -> Vec<String> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Policy {
+    #[serde(default)]
+    pub name: String,
     pub version: Uuid,
     pub generated_at: chrono::DateTime<chrono::Utc>,
     pub failure_mode: Action,
@@ -222,4 +224,6 @@ pub struct SecurityEvent {
     pub findings: Vec<Finding>,
     pub risk_score: u8,
     pub policy_version: Uuid,
+    #[serde(default)]
+    pub policy_name: String,
 }

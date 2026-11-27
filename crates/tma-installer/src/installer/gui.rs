@@ -272,6 +272,20 @@ impl Window {
     }
 
     fn initialize(&mut self) -> anyhow::Result<()> {
+        let admin_hint = self.control(
+            "STATIC",
+            "ADMIN ACCESS RECOMMENDED · Windows will request approval to install or repair.",
+            0,
+            0,
+            32,
+            66,
+            776,
+            24,
+            Field::Label,
+        )?;
+        unsafe {
+            SendMessageW(admin_hint, WM_SETFONT, self.label_font as usize, 1);
+        }
         self.control(
             "STATIC",
             "01  Choose an action",
@@ -535,6 +549,10 @@ impl Window {
             ID_START,
             if self.busy {
                 "Working…"
+            } else if operation.needs_configuration() && matches!(operation, Operation::Install) {
+                "Install (Admin)"
+            } else if matches!(operation, Operation::Repair) {
+                "Repair (Admin)"
             } else {
                 operation.verb()
             },

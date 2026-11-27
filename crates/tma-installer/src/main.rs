@@ -522,10 +522,13 @@ mod installer {
                 let enrolled = connection["enrolled"].as_bool().unwrap_or(false);
                 let configured = connection["control_plane_configured"].as_bool().unwrap_or(false);
                 let reachable = connection["control_plane_state"].as_str() == Some("connected");
+                let revoked = connection["control_plane_state"].as_str() == Some("revoked");
                 let mut message = if !configured {
                     "Service running, but control plane URL is not configured. Enrollment and protection cannot connect.".to_owned()
                 } else if !enrolled {
                     "Service running, but device enrollment is incomplete. Verify control plane connectivity and pairing code.".to_owned()
+                } else if revoked {
+                    "This endpoint was revoked by an administrator. Repair with a new pairing code to enroll it again.".to_owned()
                 } else if !reachable {
                     "Service running and enrolled, but control plane is unreachable or has not connected. Check network and control plane availability.".to_owned()
                 } else {
