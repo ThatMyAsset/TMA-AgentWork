@@ -276,12 +276,12 @@ mod tests {
         let path = directory.path().join("queue.db");
         {
             let store = Store::open(&path).unwrap();
-            store.set_meta("connection_state", "\\"connected\\"").unwrap();
+            store.set_meta("connection_state", "\"connected\"").unwrap();
             store.set_meta("last_heartbeat", "2026-11-27T00:00:00Z").unwrap();
             store.set_meta("last_heartbeat", "2026-11-27T00:01:00Z").unwrap();
         }
         let store = Store::open(&path).unwrap();
-        assert_eq!(store.meta("connection_state").unwrap().as_deref(), Some("\\"connected\\""));
+        assert_eq!(store.meta("connection_state").unwrap().as_deref(), Some("\"connected\""));
         assert_eq!(store.meta("last_heartbeat").unwrap().as_deref(), Some("2026-11-27T00:01:00Z"));
         assert_eq!(store.meta("missing").unwrap(), None);
     }
