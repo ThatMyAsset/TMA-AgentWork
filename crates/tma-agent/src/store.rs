@@ -43,7 +43,9 @@ impl Store {
 
     pub fn meta(&self, key: &str) -> anyhow::Result<Option<String>> {
         self.connection
-            .query_row("SELECT value FROM meta WHERE key=?1", [key], |row| row.get(0))
+            .query_row("SELECT value FROM meta WHERE key=?1", [key], |row| {
+                row.get(0)
+            })
             .optional()
             .map_err(Into::into)
     }
@@ -277,12 +279,22 @@ mod tests {
         {
             let store = Store::open(&path).unwrap();
             store.set_meta("connection_state", "\"connected\"").unwrap();
-            store.set_meta("last_heartbeat", "2026-11-27T00:00:00Z").unwrap();
-            store.set_meta("last_heartbeat", "2026-11-27T00:01:00Z").unwrap();
+            store
+                .set_meta("last_heartbeat", "2026-11-27T00:00:00Z")
+                .unwrap();
+            store
+                .set_meta("last_heartbeat", "2026-11-27T00:01:00Z")
+                .unwrap();
         }
         let store = Store::open(&path).unwrap();
-        assert_eq!(store.meta("connection_state").unwrap().as_deref(), Some("\"connected\""));
-        assert_eq!(store.meta("last_heartbeat").unwrap().as_deref(), Some("2026-11-27T00:01:00Z"));
+        assert_eq!(
+            store.meta("connection_state").unwrap().as_deref(),
+            Some("\"connected\"")
+        );
+        assert_eq!(
+            store.meta("last_heartbeat").unwrap().as_deref(),
+            Some("2026-11-27T00:01:00Z")
+        );
         assert_eq!(store.meta("missing").unwrap(), None);
     }
 
