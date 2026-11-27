@@ -89,7 +89,7 @@ fn run_server() -> anyhow::Result<()> {
 #[cfg(not(windows))]
 fn run_server() -> anyhow::Result<()> {
     let agent = agent()?;
-    agent.sync_once();
+    agent.sync_once()?;
     let response = agent.handle(tma_agent::model::Request::Health {
         request_id: uuid::Uuid::new_v4(),
     });

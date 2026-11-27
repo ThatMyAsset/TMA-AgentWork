@@ -142,7 +142,7 @@ impl Agent {
                 ..
             } => {
                 self.browser_connected.store(true, Ordering::Relaxed);
-                let (inspection, file_name) = match (file, prompt) {
+                let (mut inspection, file_name) = match (file, prompt) {
                     (Some(file), None) => {
                         let name = Path::new(&file.name)
                             .file_name()
@@ -199,6 +199,27 @@ impl Agent {
                         };
                     }
                 };
+                if !file_name.is_empty() {
+                    let extension = Path::new(&file_name)
+                        .extension()
+                        .and_then(|value| value.to_str())
+                        .map(str::to_ascii_lowercase)
+                        .or_else(|| {
+                            file_name
+                                .eq_ignore_ascii_case(".env")
+                                .then(|| "env".to_owned())
+                        });
+                    let allowed = extension.is_some_and(|extension| {
+                        policy
+                            .allowed_file_types
+                            .iter()
+                            .any(|value| value.eq_ignore_ascii_case(&extension))
+                    });
+                    if !allowed {
+                        inspection.status = InspectionStatus::Unsupported;
+                        inspection.findings.clear();
+                    }
+                }
                 let (decision, risk_score) = crate::policy::decide(
                     &policy,
                     &provider,

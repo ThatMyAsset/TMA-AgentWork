@@ -20,6 +20,11 @@ static PATTERNS: LazyLock<Vec<(Regex, &'static str, Severity, &'static str)>> = 
     (Regex::new(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b").unwrap(), "credential", Severity::High, "jwt"),
     (Regex::new(r#"(?im)\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|auth[_-]?token)\b\s*[:=]\s*["']?([A-Za-z0-9_\-/+=]{20,})["']?"#).unwrap(), "credential", Severity::High, "api_key_assignment"),
     (Regex::new(r#"(?im)\b(?:nik|national\s+id|nomor\s+induk\s+kependudukan|ktp)\b\s*(?:no\.?|number)?\s*[:=#-]?\s*["']?(\d{16})["']?"#).unwrap(), "pii", Severity::High, "nik"),
+    (Regex::new(r#"(?im)\b(?:ssn|social\s+security\s+number)\b\s*(?:no\.?|number)?\s*[:=#-]?\s*["']?(\d{3}-\d{2}-\d{4})["']?"#).unwrap(), "pii", Severity::High, "ssn"),
+    (Regex::new(r#"(?im)\b(?:sin|social\s+insurance\s+number)\b\s*(?:no\.?|number)?\s*[:=#-]?\s*["']?(\d{3}[ -]?\d{3}[ -]?\d{3})["']?"#).unwrap(), "pii", Severity::High, "sin"),
+    (Regex::new(r#"(?im)\b(?:nino|national\s+insurance\s+number)\b\s*(?:no\.?|number)?\s*[:=#-]?\s*["']?([A-CEGHJ-PR-TW-Z]{2}\s?\d{6}\s?[A-D])["']?"#).unwrap(), "pii", Severity::High, "ni_number"),
+    (Regex::new(r#"(?im)\b(?:pan|permanent\s+account\s+number)\b\s*(?:no\.?|number)?\s*[:=#-]?\s*["']?([A-Z]{5}\d{4}[A-Z])["']?"#).unwrap(), "pii", Severity::High, "pan"),
+    (Regex::new(r#"(?im)\b(?:aadhaar|aadhar|uid)\b\s*(?:no\.?|number)?\s*[:=#-]?\s*["']?(\d{4}[ -]?\d{4}[ -]?\d{4})["']?"#).unwrap(), "pii", Severity::High, "aadhaar"),
 ]
     },
 );

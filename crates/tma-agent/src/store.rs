@@ -40,7 +40,6 @@ impl Store {
             last_upload: Instant::now() - Duration::from_secs(60),
         })
     }
-
     pub fn meta(&self, key: &str) -> anyhow::Result<Option<String>> {
         self.connection
             .query_row("SELECT value FROM meta WHERE key=?1", [key], |row| {

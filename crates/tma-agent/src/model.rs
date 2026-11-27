@@ -157,6 +157,15 @@ pub struct Rule {
     pub min_severity: Severity,
     #[serde(default)]
     pub providers: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+fn default_allowed_file_types() -> Vec<String> {
+    crate::inspect::TEXT_EXTENSIONS
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +173,10 @@ pub struct Policy {
     pub version: Uuid,
     pub generated_at: chrono::DateTime<chrono::Utc>,
     pub failure_mode: Action,
+    #[serde(default = "default_allowed_file_types")]
+    pub allowed_file_types: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub rules: Vec<Rule>,
 }
 

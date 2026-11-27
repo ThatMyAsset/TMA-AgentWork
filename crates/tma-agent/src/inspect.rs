@@ -75,14 +75,15 @@ pub fn inspect_file(file: &FileInput) -> Inspection {
         file_size: size,
         sha256: sha256.clone(),
     };
-    let supported = Path::new(name)
+    let extension = Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|extension| {
-            TEXT_EXTENSIONS
-                .iter()
-                .any(|allowed| allowed.eq_ignore_ascii_case(extension))
-        });
+        .or_else(|| name.eq_ignore_ascii_case(".env").then_some("env"));
+    let supported = extension.is_some_and(|extension| {
+        TEXT_EXTENSIONS
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(extension))
+    });
     if !supported {
         return base(InspectionStatus::Unsupported);
     }

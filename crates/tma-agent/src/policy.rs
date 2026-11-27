@@ -9,6 +9,18 @@ pub fn defaults() -> Policy {
             .unwrap()
             .with_timezone(&Utc),
         failure_mode: Action::Block,
+        allowed_file_types: crate::inspect::TEXT_EXTENSIONS
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
+        tags: vec![
+            "credential".into(),
+            "private_key".into(),
+            "pii".into(),
+            "financial".into(),
+            "identity:id:nik".into(),
+            "environment:env".into(),
+        ],
         rules: vec![
             Rule {
                 id: Uuid::from_u128(1),
@@ -19,6 +31,7 @@ pub fn defaults() -> Policy {
                 categories: vec!["credential".into(), "private_key".into()],
                 min_severity: Severity::High,
                 providers: vec![],
+                tags: vec![],
             },
             Rule {
                 id: Uuid::from_u128(2),
@@ -29,6 +42,7 @@ pub fn defaults() -> Policy {
                 categories: vec!["pii".into(), "financial".into()],
                 min_severity: Severity::Medium,
                 providers: vec![],
+                tags: vec![],
             },
             Rule {
                 id: Uuid::from_u128(3),
@@ -39,6 +53,7 @@ pub fn defaults() -> Policy {
                 categories: vec![],
                 min_severity: Severity::Low,
                 providers: vec![],
+                tags: vec![],
             },
         ],
     }
@@ -48,10 +63,37 @@ pub fn validate(policy: &Policy) -> anyhow::Result<()> {
     if !matches!(policy.failure_mode, Action::Block | Action::Audit) {
         anyhow::bail!("failure_mode must be block or audit")
     }
+    if policy.allowed_file_types.is_empty()
+        || policy.allowed_file_types.iter().any(|extension| {
+            !crate::inspect::TEXT_EXTENSIONS
+                .iter()
+                .any(|supported| supported.eq_ignore_ascii_case(extension))
+        })
+    {
+        anyhow::bail!("allowed_file_types must contain supported text formats")
+    }
+    if policy.tags.len() > 100
+        || policy.tags.iter().any(|tag| {
+            tag.is_empty()
+                || tag.len() > 64
+                || !tag.bytes().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || matches!(byte, b':' | b'_' | b'-')
+                })
+                || !tag.as_bytes()[0].is_ascii_lowercase()
+        })
+    {
+        anyhow::bail!("policy contains invalid data tags")
+    }
+    let configured_tags = policy.tags.iter().collect::<std::collections::HashSet<_>>();
     let mut ids = std::collections::HashSet::new();
     for rule in &policy.rules {
         if rule.name.trim().is_empty() || !ids.insert(rule.id) {
             anyhow::bail!("invalid or duplicate policy rule")
+        }
+        if rule.tags.len() > 50 || rule.tags.iter().any(|tag| !configured_tags.contains(tag)) {
+            anyhow::bail!("policy rule references an invalid or disabled data tag")
         }
     }
     Ok(())
@@ -88,12 +130,20 @@ pub fn decide(
                     .any(|p| p.eq_ignore_ascii_case(provider))
         })
         .filter(|rule| {
-            rule.categories.is_empty()
+            (rule.categories.is_empty() && rule.tags.is_empty())
                 || findings.iter().any(|finding| {
-                    rule.categories
+                    let category_match = rule
+                        .categories
                         .iter()
-                        .any(|category| category == &finding.category)
-                        && finding.severity >= rule.min_severity
+                        .any(|category| category == &finding.category);
+                    let tag_match = rule.tags.iter().any(|tag| {
+                        tag.eq_ignore_ascii_case(&finding.detector)
+                            || tag
+                                .rsplit(':')
+                                .next()
+                                .is_some_and(|name| name.eq_ignore_ascii_case(&finding.detector))
+                    });
+                    (category_match || tag_match) && finding.severity >= rule.min_severity
                 })
         })
         .min_by_key(|rule| rule.priority)
@@ -126,6 +176,7 @@ mod tests {
             categories: vec!["credential".into()],
             min_severity: Severity::Low,
             providers: vec![],
+            tags: vec![],
         });
         assert_eq!(
             decide(
@@ -152,6 +203,7 @@ mod tests {
             categories: vec!["pii".into()],
             min_severity: Severity::Critical,
             providers: vec!["chatgpt".into()],
+            tags: vec![],
         });
         assert_eq!(
             decide(
