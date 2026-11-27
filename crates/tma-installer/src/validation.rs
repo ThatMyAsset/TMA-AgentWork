@@ -45,7 +45,6 @@ pub fn development_mode_value(value: Option<&str>, existing: bool) -> bool {
     }
 }
 
-
 pub fn validate_url(value: &str, development: bool) -> Result<String, &'static str> {
     let value = value.trim().trim_end_matches('/');
     let (scheme, remainder) = value
