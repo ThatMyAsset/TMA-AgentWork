@@ -42,12 +42,12 @@ const ID_HEALTH: usize = 123;
 const ID_PROGRESS: usize = 124;
 const ID_STATUS: usize = 125;
 const WM_COMPLETE: u32 = WM_APP + 1;
-const BACKGROUND: u32 = 0x00f8_f6f3;
+const BACKGROUND: u32 = 0x00f7_f8fa;
 const SURFACE: u32 = 0x00ff_ffff;
-const BORDER: u32 = 0x00e4_deda;
-const HEADER: u32 = 0x0034_231b;
-const INK: u32 = 0x002b_201b;
-const MUTED: u32 = 0x006b_625c;
+const BORDER: u32 = 0x00e5_e7eb;
+const SIDEBAR: u32 = 0x001a_8af2;
+const INK: u32 = 0x0022_252b;
+const MUTED: u32 = 0x006b_7280;
 
 #[derive(Clone)]
 enum Field {
@@ -115,8 +115,8 @@ pub fn run() -> anyhow::Result<()> {
     let mut bounds = RECT {
         left: 0,
         top: 0,
-        right: scale(760),
-        bottom: scale(640),
+        right: scale(900),
+        bottom: scale(630),
     };
     unsafe {
         AdjustWindowRectExForDpi(&mut bounds, style, 0, 0, dpi);
@@ -277,9 +277,9 @@ impl Window {
             "ADMIN ACCESS RECOMMENDED · Windows will request approval to install or repair.",
             0,
             0,
-            32,
-            66,
-            776,
+            280,
+            92,
+            600,
             24,
             Field::Label,
         )?;
@@ -291,16 +291,16 @@ impl Window {
             "01  Choose an action",
             0,
             0,
-            32,
-            112,
+            280,
+            122,
             400,
             20,
             Field::Label,
         )?;
         for (id, label, x) in [
-            (ID_INSTALL, "Install agent", 32),
-            (ID_REPAIR, "Repair / upgrade", 284),
-            (ID_UNINSTALL, "Uninstall", 536),
+            (ID_INSTALL, "Install agent", 280),
+            (ID_REPAIR, "Repair / upgrade", 480),
+            (ID_UNINSTALL, "Uninstall", 680),
         ] {
             self.control(
                 "BUTTON",
@@ -310,8 +310,8 @@ impl Window {
                     | if id == ID_INSTALL { WS_GROUP } else { 0 },
                 0,
                 x,
-                139,
-                232,
+                148,
+                188,
                 30,
                 Field::Action(id),
             )?;
@@ -325,8 +325,8 @@ impl Window {
             "02  Connect your endpoint",
             0,
             0,
-            32,
-            190,
+            280,
+            202,
             400,
             20,
             Field::Label,
@@ -336,8 +336,8 @@ impl Window {
             "Control-plane URL",
             0,
             0,
-            32,
-            220,
+            280,
+            231,
             376,
             18,
             Field::Label,
@@ -350,9 +350,9 @@ impl Window {
             "",
             ES_AUTOHSCROLL as u32 | WS_TABSTOP | WS_GROUP,
             WS_EX_CLIENTEDGE,
-            32,
-            242,
-            776,
+            280,
+            252,
+            608,
             30,
             Field::Edit(ID_URL),
         )?;
@@ -361,8 +361,8 @@ impl Window {
             "One-time pairing code",
             0,
             0,
-            32,
-            283,
+            280,
+            293,
             376,
             18,
             Field::Label,
@@ -375,17 +375,17 @@ impl Window {
             "",
             (ES_AUTOHSCROLL | ES_PASSWORD) as u32 | WS_TABSTOP,
             WS_EX_CLIENTEDGE,
-            32,
-            305,
-            776,
+            280,
+            314,
+            608,
             30,
             Field::Edit(ID_CODE),
         )?;
         for (id, label, x) in [
-            (ID_CHROME, "Chromium extension ID (Chrome, Edge, etc.)", 32),
-            (ID_EDGE, "Firefox Add-on ID (optional)", 420),
+            (ID_CHROME, "Chromium extension ID", 280),
+            (ID_EDGE, "Firefox add-on ID (optional)", 595),
         ] {
-            let label_hwnd = self.control("STATIC", label, 0, 0, x, 346, 376, 18, Field::Label)?;
+            let label_hwnd = self.control("STATIC", label, 0, 0, x, 355, 280, 18, Field::Label)?;
             unsafe {
                 SendMessageW(label_hwnd, WM_SETFONT, self.label_font as usize, 1);
             }
@@ -395,8 +395,8 @@ impl Window {
                 ES_AUTOHSCROLL as u32 | WS_TABSTOP,
                 WS_EX_CLIENTEDGE,
                 x,
-                368,
-                388,
+                376,
+                280,
                 30,
                 Field::Edit(id),
             )?;
@@ -406,9 +406,9 @@ impl Window {
             "Development mode — allow direct HTTP to a lab Control Plane",
             BS_AUTOCHECKBOX as u32 | WS_TABSTOP | WS_GROUP,
             0,
-            32,
-            410,
-            776,
+            280,
+            419,
+            608,
             26,
             Field::Development,
         )?;
@@ -427,9 +427,9 @@ impl Window {
             "Also permanently erase local events, enrollment and policy (purge)",
             BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
             0,
-            32,
-            440,
-            776,
+            280,
+            444,
+            608,
             26,
             Field::Purge,
         )?;
@@ -439,21 +439,21 @@ impl Window {
             "03  Setup and health",
             0,
             0,
-            32,
-            480,
+            280,
+            478,
             400,
             20,
             Field::Label,
         )?;
-        self.control("STATIC", "", 0, 0, 32, 509, 776, 44, Field::Status)?;
+        self.control("STATIC", "", 0, 0, 280, 506, 608, 38, Field::Status)?;
         self.control(
             "msctls_progress32",
             "",
             PBS_SMOOTH,
             0,
-            32,
-            562,
-            776,
+            280,
+            548,
+            608,
             8,
             Field::Progress,
         )?;
@@ -463,8 +463,8 @@ impl Window {
             "Recheck health",
             WS_TABSTOP | WS_GROUP,
             0,
-            456,
-            592,
+            496,
+            568,
             144,
             36,
             Field::Button(ID_HEALTH),
@@ -474,8 +474,8 @@ impl Window {
             "Close",
             WS_TABSTOP,
             0,
-            612,
-            592,
+            656,
+            568,
             84,
             36,
             Field::Button(ID_CLOSE),
@@ -485,9 +485,9 @@ impl Window {
             "Install agent",
             BS_DEFPUSHBUTTON as u32 | WS_TABSTOP,
             0,
-            682,
-            592,
-            126,
+            752,
+            568,
+            136,
             36,
             Field::Button(ID_START),
         )?;
@@ -883,54 +883,132 @@ impl Window {
         unsafe {
             GetClientRect(self.hwnd, &mut client);
             FillRect(dc, &client, self.background);
-            let header = RECT {
+            let sidebar = RECT {
                 left: 0,
                 top: 0,
-                right: client.right,
-                bottom: self.scale(90),
+                right: self.scale_x(250),
+                bottom: client.bottom,
             };
-            let brush = CreateSolidBrush(HEADER);
-            FillRect(dc, &header, brush);
+            let brush = CreateSolidBrush(SIDEBAR);
+            FillRect(dc, &sidebar, brush);
             DeleteObject(brush);
-            for (top, bottom) in [(99, 180), (179, 446), (444, 554)] {
-                let card = RECT {
-                    left: self.scale_x(24),
-                    top: self.scale(top),
-                    right: client.right - self.scale_x(24),
-                    bottom: self.scale(bottom),
-                };
-                FillRect(dc, &card, self.surface);
-                let border = CreateSolidBrush(BORDER);
-                FrameRect(dc, &card, border);
-                DeleteObject(border);
-            }
+            let content_divider = RECT {
+                left: self.scale_x(250),
+                top: 0,
+                right: self.scale_x(251),
+                bottom: client.bottom,
+            };
+            let divider = CreateSolidBrush(BORDER);
+            FillRect(dc, &content_divider, divider);
+            DeleteObject(divider);
             SetBkMode(dc, TRANSPARENT as i32);
-            SetTextColor(dc, 0x00ff_ffff);
             SelectObject(dc, self.title_font);
-            let mut title = RECT {
-                left: self.scale_x(32),
-                top: self.scale(17),
-                right: client.right - self.scale_x(32),
-                bottom: self.scale(47),
+            SetTextColor(dc, 0x00ff_ffff);
+            let mut brand = RECT {
+                left: self.scale_x(28),
+                top: self.scale(32),
+                right: self.scale_x(220),
+                bottom: self.scale(62),
             };
             DrawTextW(
                 dc,
-                wide("ThatMyAssets Agent").as_ptr(),
+                wide("ThatMyAssets").as_ptr(),
+                -1,
+                &mut brand,
+                DT_LEFT | DT_SINGLELINE | DT_VCENTER,
+            );
+            SelectObject(dc, self.font);
+            SetTextColor(dc, 0x00f9_e7d4);
+            let mut side_subtitle = RECT {
+                left: self.scale_x(28),
+                top: self.scale(64),
+                right: self.scale_x(220),
+                bottom: self.scale(88),
+            };
+            DrawTextW(
+                dc,
+                wide("Endpoint protection setup").as_ptr(),
+                -1,
+                &mut side_subtitle,
+                DT_LEFT | DT_SINGLELINE,
+            );
+            for (index, label) in [
+                "Welcome",
+                "Connection",
+                "Browser extensions",
+                "Administrator approval",
+                "Install and verify",
+            ]
+            .iter()
+            .enumerate()
+            {
+                let y = 142 + index as i32 * 48;
+                let circle = CreateSolidBrush(0x00ff_ffff);
+                let old_brush = SelectObject(dc, circle);
+                Ellipse(
+                    dc,
+                    self.scale_x(30),
+                    self.scale(y),
+                    self.scale_x(48),
+                    self.scale(y + 18),
+                );
+                SelectObject(dc, old_brush);
+                DeleteObject(circle);
+                SetTextColor(dc, SIDEBAR);
+                let mut check = RECT {
+                    left: self.scale_x(33),
+                    top: self.scale(y + 1),
+                    right: self.scale_x(46),
+                    bottom: self.scale(y + 17),
+                };
+                DrawTextW(
+                    dc,
+                    wide("✓").as_ptr(),
+                    -1,
+                    &mut check,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+                );
+                SetTextColor(dc, 0x00ff_ffff);
+                let mut step = RECT {
+                    left: self.scale_x(62),
+                    top: self.scale(y - 2),
+                    right: self.scale_x(228),
+                    bottom: self.scale(y + 21),
+                };
+                DrawTextW(
+                    dc,
+                    wide(label).as_ptr(),
+                    -1,
+                    &mut step,
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+                );
+            }
+            SelectObject(dc, self.title_font);
+            SetTextColor(dc, INK);
+            let mut title = RECT {
+                left: self.scale_x(280),
+                top: self.scale(28),
+                right: client.right - self.scale_x(24),
+                bottom: self.scale(58),
+            };
+            DrawTextW(
+                dc,
+                wide("Set up your endpoint").as_ptr(),
                 -1,
                 &mut title,
                 DT_LEFT | DT_SINGLELINE | DT_VCENTER,
             );
             SelectObject(dc, self.font);
-            SetTextColor(dc, 0x00e5_d8c9);
+            SetTextColor(dc, MUTED);
             let mut subtitle = RECT {
-                left: self.scale_x(32),
-                top: self.scale(51),
-                right: client.right - self.scale_x(32),
-                bottom: self.scale(75),
+                left: self.scale_x(280),
+                top: self.scale(59),
+                right: client.right - self.scale_x(24),
+                bottom: self.scale(82),
             };
             DrawTextW(
                 dc,
-                wide("Set up Windows endpoint protection and browser connections").as_ptr(),
+                wide("Connect this Windows device to your organization in a few steps.").as_ptr(),
                 -1,
                 &mut subtitle,
                 DT_LEFT | DT_SINGLELINE,
