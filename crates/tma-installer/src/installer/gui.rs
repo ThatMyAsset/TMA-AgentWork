@@ -1,4 +1,4 @@
-use super::{development_mode, health_report, wide, INSTALL_DIR};
+use super::{health_report, stored_development_mode, wide, INSTALL_DIR};
 use crate::validation::{self, Configuration, Operation};
 use std::ffi::c_void;
 use std::path::Path;
@@ -395,7 +395,7 @@ impl Window {
             26,
             Field::Development,
         )?;
-        if development_mode() {
+        if stored_development_mode() {
             unsafe {
                 SendMessageW(
                     self.field(ID_DEVELOPMENT),
