@@ -24,7 +24,7 @@ fn run() -> anyhow::Result<()> {
             &mut stdout,
             &mut service,
             &config.ipc_credential,
-        );
+        )
     }
     #[cfg(not(windows))]
     anyhow::bail!("native messaging relay requires the Windows service")
