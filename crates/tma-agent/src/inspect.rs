@@ -138,17 +138,18 @@ pub fn inspect_file(file: &FileInput) -> Inspection {
         sha256: sha256.clone(),
     };
     let lower_name = name.to_ascii_lowercase();
-    let extension = Path::new(name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .or_else(|| match lower_name.as_str() {
-            ".env" => Some("env"),
-            ".gitignore" => Some("gitignore"),
-            ".dockerignore" => Some("dockerignore"),
-            "dockerfile" => Some("dockerfile"),
-            "makefile" => Some("makefile"),
-            _ => None,
-        });
+    let extension =
+        Path::new(name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .or(match lower_name.as_str() {
+                ".env" => Some("env"),
+                ".gitignore" => Some("gitignore"),
+                ".dockerignore" => Some("dockerignore"),
+                "dockerfile" => Some("dockerfile"),
+                "makefile" => Some("makefile"),
+                _ => None,
+            });
     let supported = extension.is_some_and(|extension| {
         TEXT_EXTENSIONS
             .iter()
