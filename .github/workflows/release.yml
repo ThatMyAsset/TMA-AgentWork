@@ -39,7 +39,8 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/release/tma-installer.exe dist/TMA-Agent-Setup.exe
           $hash = (Get-FileHash -Algorithm SHA256 dist/TMA-Agent-Setup.exe).Hash.ToLowerInvariant()
-          Set-Content -NoNewline dist/SHA256SUMS.txt "$hash  TMA-Agent-Setup.exe"
+          [System.IO.File]::WriteAllText((Join-Path $PWD "dist/SHA256SUMS.txt"), "$hash  TMA-Agent-Setup.exe`n")
+          if (-not (Test-Path dist/SHA256SUMS.txt)) { throw "Checksum file was not created" }
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
