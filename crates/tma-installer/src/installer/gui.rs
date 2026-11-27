@@ -368,8 +368,8 @@ impl Window {
             Field::Edit(ID_CODE),
         )?;
         for (id, label, x) in [
-            (ID_CHROME, "Chrome extension ID", 32),
-            (ID_EDGE, "Edge extension ID (optional)", 420),
+            (ID_CHROME, "Chromium extension ID (Chrome, Edge, etc.)", 32),
+            (ID_EDGE, "Firefox Add-on ID (optional)", 420),
         ] {
             let label_hwnd = self.control("STATIC", label, 0, 0, x, 346, 376, 18, Field::Label)?;
             unsafe {
@@ -481,8 +481,8 @@ impl Window {
         for (id, variable) in [
             (ID_URL, "TMA_CONTROL_PLANE_URL"),
             (ID_CODE, "TMA_PAIRING_CODE"),
-            (ID_CHROME, "TMA_CHROME_EXTENSION_ID"),
-            (ID_EDGE, "TMA_EDGE_EXTENSION_ID"),
+            (ID_CHROME, "TMA_CHROMIUM_EXTENSION_ID"),
+            (ID_EDGE, "TMA_FIREFOX_EXTENSION_ID"),
         ] {
             if let Ok(value) = std::env::var(variable) {
                 self.set_text(id, &value);
@@ -632,7 +632,7 @@ impl Window {
                 ("TMA_CONTROL_PLANE_URL", &configuration.control_plane_url),
                 ("TMA_PAIRING_CODE", &configuration.pairing_code),
                 (
-                    "TMA_CHROME_EXTENSION_ID",
+                    "TMA_CHROMIUM_EXTENSION_ID",
                     &configuration.chrome_extension_id,
                 ),
             ] {
@@ -641,7 +641,7 @@ impl Window {
                 }
             }
             if let Some(edge) = &configuration.edge_extension_id {
-                std::env::set_var("TMA_EDGE_EXTENSION_ID", edge);
+                std::env::set_var("TMA_FIREFOX_EXTENSION_ID", edge);
             }
         }
         let mut parameters = format!("--worker {} \"{}\"", operation.argument(), report.display());
@@ -687,8 +687,8 @@ impl Window {
         for variable in [
             "TMA_CONTROL_PLANE_URL",
             "TMA_PAIRING_CODE",
-            "TMA_CHROME_EXTENSION_ID",
-            "TMA_EDGE_EXTENSION_ID",
+            "TMA_CHROMIUM_EXTENSION_ID",
+            "TMA_FIREFOX_EXTENSION_ID",
         ] {
             std::env::remove_var(variable);
         }
@@ -830,6 +830,15 @@ impl Window {
                     }
                     if status == "error" {
                         self.error(&detail);
+                    }
+                    if status == "protected" {
+                        let hwnd = self.hwnd as usize;
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(1800));
+                            unsafe {
+                                PostMessageW(hwnd as HWND, WM_CLOSE, 0, 0);
+                            }
+                        });
                     }
                     break;
                 }

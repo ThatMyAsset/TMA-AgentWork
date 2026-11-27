@@ -23,8 +23,8 @@ pub struct IpcStatus {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct BrowserRegistration {
-    pub chrome: bool,
-    pub edge: bool,
+    pub chromium: bool,
+    pub firefox: bool,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ParserWorkerState {
@@ -445,8 +445,8 @@ mod windows {
             }
         }
         BrowserRegistration {
-            chrome: exists(r"Software\Google\Chrome\NativeMessagingHosts\com.thatmyassets.dlp"),
-            edge: exists(r"Software\Microsoft\Edge\NativeMessagingHosts\com.thatmyassets.dlp"),
+            chromium: exists(r"Software\Google\Chrome\NativeMessagingHosts\com.thatmyassets.dlp"),
+            firefox: exists(r"Software\Mozilla\NativeMessagingHosts\com.thatmyassets.dlp"),
         }
     }
     pub fn diagnostics(config: &Config) -> Diagnostics {
@@ -500,8 +500,8 @@ mod fallback {
             },
             parser_worker: ParserWorkerState::Unavailable,
             browsers: BrowserRegistration {
-                chrome: false,
-                edge: false,
+                chromium: false,
+                firefox: false,
             },
         }
     }

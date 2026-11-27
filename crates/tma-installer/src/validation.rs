@@ -116,6 +116,23 @@ pub fn validate_extension_id(value: &str, browser: &str) -> Result<String, Strin
     Ok(value.to_owned())
 }
 
+pub fn validate_firefox_extension_id(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.len() < 3
+        || value.len() > 128
+        || value.chars().any(char::is_whitespace)
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"@._+-{}".contains(&b))
+    {
+        return Err(
+            "Firefox Add-on ID must be a valid Gecko ID, such as thatmyassets-dlp@example.com"
+                .to_owned(),
+        );
+    }
+    Ok(value.to_owned())
+}
+
 pub fn validate_configuration(
     url: &str,
     pairing_code: &str,
@@ -123,16 +140,25 @@ pub fn validate_configuration(
     edge: &str,
     development: bool,
 ) -> Result<Configuration, String> {
+    let chrome = if chrome.trim().is_empty() {
+        String::new()
+    } else {
+        validate_extension_id(chrome, "Chromium")?
+    };
     let edge = edge.trim();
+    let firefox = if edge.is_empty() {
+        None
+    } else {
+        Some(validate_firefox_extension_id(edge)?)
+    };
+    if chrome.is_empty() && firefox.is_none() {
+        return Err("Enter a Chromium extension ID or Firefox Add-on ID".into());
+    }
     Ok(Configuration {
         control_plane_url: validate_url(url, development).map_err(str::to_owned)?,
         pairing_code: validate_pairing_code(pairing_code).map_err(str::to_owned)?,
-        chrome_extension_id: validate_extension_id(chrome, "Chrome")?,
-        edge_extension_id: if edge.is_empty() {
-            None
-        } else {
-            Some(validate_extension_id(edge, "Edge")?)
-        },
+        chrome_extension_id: chrome,
+        edge_extension_id: firefox,
         development,
     })
 }
@@ -150,21 +176,21 @@ pub fn validate_repair_configuration(
     if !pairing_code.is_empty() {
         validate_pairing_code(pairing_code)?;
     }
-    if !chrome.is_empty() {
-        validate_extension_id(chrome, "Chrome")?;
-    }
-    if !edge.is_empty() {
-        validate_extension_id(edge, "Edge")?;
-    }
+    let chromium = if chrome.trim().is_empty() {
+        String::new()
+    } else {
+        validate_extension_id(chrome, "Chromium")?
+    };
+    let firefox = if edge.trim().is_empty() {
+        None
+    } else {
+        Some(validate_firefox_extension_id(edge)?)
+    };
     Ok(Configuration {
         control_plane_url: url.trim().to_owned(),
         pairing_code: pairing_code.trim().to_owned(),
-        chrome_extension_id: chrome.trim().to_owned(),
-        edge_extension_id: if edge.trim().is_empty() {
-            None
-        } else {
-            Some(edge.trim().to_owned())
-        },
+        chrome_extension_id: chromium,
+        edge_extension_id: firefox,
         development,
     })
 }

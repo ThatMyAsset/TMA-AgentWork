@@ -10,7 +10,7 @@ The extension enforces supported browser routes and confirms enforcement. A resp
 
 ## Prerequisites
 
-- 64-bit Windows 10/11 or Windows Server with Chrome/Edge.
+- 64-bit Windows 10/11 or Windows Server with a Chromium-family browser or Firefox.
 - Rust toolchain (`rustup`), stable 1.80 or newer; MSVC x64 target and Visual Studio C++ Build Tools.
 - Administrator shell for install/repair/upgrade/uninstall.
 - Running TMA-Dashboard control plane and one-time pairing code for enrollment. See its repository for server commands.
@@ -32,7 +32,7 @@ Remove-Item Env:TMA_PAYLOAD_DIR
 
 GitHub Actions builds and publishes the same installer when a `v*` tag is pushed. The release includes `TMA-Agent-Setup.exe` and `SHA256SUMS.txt`; formatting, Clippy, and workspace tests must pass before publication.
 
-Launch `dist\setup.exe` without arguments for native Windows setup. Choose **Install agent**, **Repair / upgrade**, or **Uninstall**. The form validates the control-plane URL, one-time pairing code, required Chrome extension ID and optional Edge ID before requesting UAC elevation. For a lab Control Plane over plain HTTP, select **Development mode — allow direct HTTP to a lab Control Plane** in the installer. It is unchecked by default for safety and its choice is saved in `config.json`; HTTPS does not require this option. Work runs in a separate elevated process; the window reports actual setup stages and errors without freezing. **Recheck health** queries the installed service over authenticated IPC. Setup never claims `Protected` from service startup alone: enrollment, policy readiness and browser connection must be confirmed by health.
+Launch `dist\setup.exe` without arguments for native Windows setup. Choose **Install agent**, **Repair / upgrade**, or **Uninstall**. The form validates the control-plane URL, one-time pairing code, Chromium extension ID and optional Firefox Add-on ID before requesting UAC elevation. For a lab Control Plane over plain HTTP, select **Development mode — allow direct HTTP to a lab Control Plane** in the installer. It is unchecked by default for safety and its choice is saved in `config.json`; HTTPS does not require this option. Work runs in a separate elevated process; the window reports actual setup stages and errors without freezing. **Recheck health** queries the installed service over authenticated IPC. Setup never claims `Protected` from service startup alone: enrollment, policy readiness and browser connection must be confirmed by health. After successful enrollment, policy sync and browser connection, setup shows the protected status briefly and closes automatically.
 
 The same executable retains all CLI commands below. GUI repair with every connection field blank preserves existing configuration. Uninstall retains data by default; selecting purge shows an explicit irreversible-data warning before removing queued events, enrollment and policy.
 
@@ -42,16 +42,16 @@ The same executable retains all CLI commands below. GUI repair with every connec
 $env:TMA_DEVELOPMENT = "true"
 $env:TMA_CONTROL_PLANE_URL = "http://43.157.201.52:18080"
 $env:TMA_PAIRING_CODE = "one-time-code-from-admin"
-$env:TMA_CHROME_EXTENSION_ID = "extension-id-from-chrome-web-store-or-unpacked-load"
+$env:TMA_CHROMIUM_EXTENSION_ID = "extension-id-from-chrome-web-store-or-unpacked-load"
 .\dist\setup.exe install
 ```
 
-Installer creates `C:\Program Files\ThatMyAssets\Agent` and `C:\ProgramData\ThatMyAssets`, protected random IPC credential, SQLite queue and default policy. Service name is `TMAAgent`, `SERVICE_AUTO_START`, runs as `NT AUTHORITY\LocalService`, starts immediately and has restart recovery after 5 s, 15 s and 60 s. Service runs before logon; browser relay starts on demand when a browser connects. Install/repair/upgrade preserve local queue, enrollment, control-plane URL and IPC credential. Set `TMA_ROTATE_IPC_CREDENTIAL=1` only when intentional credential rotation is required. `TMA_EDGE_EXTENSION_ID` can additionally configure an Edge allowlist entry for CLI installation.
+Installer creates `C:\Program Files\ThatMyAssets\Agent` and `C:\ProgramData\ThatMyAssets`, protected random IPC credential, SQLite queue and default policy. Service name is `TMAAgent`, `SERVICE_AUTO_START`, runs as `NT AUTHORITY\LocalService`, starts immediately and has restart recovery after 5 s, 15 s and 60 s. Service runs before logon; browser relay starts on demand when a browser connects. Install/repair/upgrade preserve local queue, enrollment, control-plane URL and IPC credential. Set `TMA_ROTATE_IPC_CREDENTIAL=1` only when intentional credential rotation is required. `TMA_FIREFOX_EXTENSION_ID` can additionally configure an Edge allowlist entry for CLI installation.
 
 Native host name is **`com.thatmyassets.dlp`**. Installer writes `%ProgramData%\ThatMyAssets\native-host.json` and HKLM Chrome/Edge NativeMessagingHosts keys. Empty extension allowlist denies all browsers. Set an actual packed/unpacked extension ID before expecting a connection; add a distinct Edge ID if needed:
 
 ```powershell
-.\dist\setup.exe register-extension <chrome-extension-id> [edge-extension-id]
+.\dist\setup.exe register-extension <chromium-extension-id> [firefox-addon-id]
 ```
 
 Service pairing is performed at first synchronization using the one-time code. Pairing code and device token are not command-line arguments, events or logs. Device token is stored in ACL-protected `%ProgramData%\ThatMyAssets\device-token`; only service, LocalService, SYSTEM and Administrators can read it. Set `TMA_DEVELOPMENT=true` for direct HTTP control-plane URLs; the installer stores this as `development:true` in `config.json`, or an existing config can set that field directly. **Development only:** plain HTTP exposes enrollment and device traffic on the network. Use HTTPS in production; without development mode, HTTP remains restricted to loopback.

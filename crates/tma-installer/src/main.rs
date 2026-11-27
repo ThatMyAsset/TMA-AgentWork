@@ -223,14 +223,14 @@ mod installer {
                 let _ = WORKER_OUTPUT.set(Mutex::new(report));
                 if operation != "uninstall" {
                     let development = development_mode();
-                    for variable in ["TMA_CONTROL_PLANE_URL", "TMA_PAIRING_CODE", "TMA_CHROME_EXTENSION_ID", "TMA_EDGE_EXTENSION_ID"] {
+                    for variable in ["TMA_CONTROL_PLANE_URL", "TMA_PAIRING_CODE", "TMA_CHROMIUM_EXTENSION_ID", "TMA_FIREFOX_EXTENSION_ID"] {
                         if let Ok(value) = std::env::var(variable) {
                             if !value.is_empty() {
                                 let result = match variable {
                                     "TMA_CONTROL_PLANE_URL" => validation::validate_url(&value, development).map(|_| ()).map_err(str::to_owned),
                                     "TMA_PAIRING_CODE" => validation::validate_pairing_code(&value).map(|_| ()).map_err(str::to_owned),
-                                    "TMA_CHROME_EXTENSION_ID" => validation::validate_extension_id(&value, "Chrome").map(|_| ()),
-                                    _ => validation::validate_extension_id(&value, "Edge").map(|_| ()),
+                                    "TMA_CHROMIUM_EXTENSION_ID" => validation::validate_extension_id(&value, "Chromium").map(|_| ()),
+                                    _ => validation::validate_firefox_extension_id(&value).map(|_| ()),
                                 };
                                 if let Err(error) = result {
                                     emit("result", "error", &format!("{variable}: {error}"));
@@ -275,18 +275,13 @@ mod installer {
                         validation::validate_pairing_code(&code).map_err(|error| anyhow::anyhow!(error))?;
                     }
                 }
-                for (variable, browser) in [("TMA_CHROME_EXTENSION_ID", "Chrome"), ("TMA_EDGE_EXTENSION_ID", "Edge")] {
-                    if let Ok(id) = std::env::var(variable) {
-                        if !id.is_empty() {
-                            validation::validate_extension_id(&id, browser).map_err(anyhow::Error::msg)?;
-                        }
-                    }
-                }
+                if let Ok(id) = std::env::var("TMA_CHROMIUM_EXTENSION_ID") { if !id.is_empty() { validation::validate_extension_id(&id, "Chromium").map_err(anyhow::Error::msg)?; } }
+                if let Ok(id) = std::env::var("TMA_FIREFOX_EXTENSION_ID") { if !id.is_empty() { validation::validate_firefox_extension_id(&id).map_err(anyhow::Error::msg)?; } }
                 install()
             }
             "uninstall" => uninstall(args.any(|arg| arg == "--purge")),
-            "register-extension" => register_extension(args.next().context("Chrome extension ID required")?, args.next()),
-            _ => bail!("usage: tma-installer [install|repair|upgrade | uninstall [--purge] | register-extension <chrome-id> [edge-id]]"),
+            "register-extension" => register_extension(args.next().context("Chromium extension ID required")?, args.next()),
+            _ => bail!("usage: tma-installer [install|repair|upgrade | uninstall [--purge] | register-extension <chromium-id> [firefox-addon-id]]"),
         }
     }
 
@@ -666,7 +661,12 @@ mod installer {
             .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
             .and_then(|value| value["allowed_origins"].as_array().cloned())
             .unwrap_or_default();
-        for variable in ["TMA_CHROME_EXTENSION_ID", "TMA_EDGE_EXTENSION_ID"] {
+        let mut extensions = std::fs::read(&manifest)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|value| value["allowed_extensions"].as_array().cloned())
+            .unwrap_or_default();
+        for variable in ["TMA_CHROMIUM_EXTENSION_ID", "TMA_CHROME_EXTENSION_ID"] {
             if let Ok(id) = std::env::var(variable) {
                 if !id.is_empty() {
                     let origin = format!("chrome-extension://{id}/");
@@ -676,13 +676,27 @@ mod installer {
                 }
             }
         }
+        if let Ok(id) = std::env::var("TMA_FIREFOX_EXTENSION_ID") {
+            if !id.trim().is_empty()
+                && !extensions
+                    .iter()
+                    .any(|item| item.as_str() == Some(id.trim()))
+            {
+                extensions.push(id.trim().into());
+            }
+        }
         // Empty origins deliberately prevents browser access until a real extension ID is configured.
-        let manifest_body = serde_json::json!({"name": HOST_NAME, "description": "ThatMyAssets authenticated native messaging relay", "path": relay.to_string_lossy(), "type": "stdio", "allowed_origins": origins});
+        let manifest_body = serde_json::json!({"name": HOST_NAME, "description": "ThatMyAssets authenticated native messaging relay", "path": relay.to_string_lossy(), "type": "stdio", "allowed_origins": origins, "allowed_extensions": extensions});
         std::fs::write(&manifest, serde_json::to_vec_pretty(&manifest_body)?)?;
         acl(&manifest, true)?;
         registry_string(
             HKEY_LOCAL_MACHINE,
             &format!(r"Software\Google\Chrome\NativeMessagingHosts\{HOST_NAME}"),
+            &manifest.to_string_lossy(),
+        )?;
+        registry_string(
+            HKEY_LOCAL_MACHINE,
+            &format!(r"Software\Mozilla\NativeMessagingHosts\{HOST_NAME}"),
             &manifest.to_string_lossy(),
         )?;
         registry_string(
@@ -697,10 +711,10 @@ mod installer {
         require_admin()?;
         validation::validate_extension_id(&chrome, "Chrome").map_err(anyhow::Error::msg)?;
         if let Some(id) = &edge {
-            validation::validate_extension_id(id, "Edge").map_err(anyhow::Error::msg)?;
-            std::env::set_var("TMA_EDGE_EXTENSION_ID", id);
+            validation::validate_firefox_extension_id(id).map_err(anyhow::Error::msg)?;
+            std::env::set_var("TMA_FIREFOX_EXTENSION_ID", id);
         }
-        std::env::set_var("TMA_CHROME_EXTENSION_ID", &chrome);
+        std::env::set_var("TMA_CHROMIUM_EXTENSION_ID", &chrome);
         register_host(&PathBuf::from(INSTALL_DIR).join("tma-relay.exe"))?;
         println!("Native Messaging allowlist updated; reload browser extensions");
         Ok(())
@@ -723,6 +737,7 @@ mod installer {
         for path in [
             format!(r"Software\Google\Chrome\NativeMessagingHosts\{HOST_NAME}"),
             format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{HOST_NAME}"),
+            format!(r"Software\Mozilla\NativeMessagingHosts\{HOST_NAME}"),
         ] {
             let result = unsafe { RegDeleteTreeW(HKEY_LOCAL_MACHINE, wide(&path).as_ptr()) };
             if result != 0 && result != 2 {
