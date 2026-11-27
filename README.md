@@ -30,6 +30,8 @@ Remove-Item Env:TMA_PAYLOAD_DIR
 
 `dist/setup.exe` is standalone offline installer: its build script embeds zlib-compressed `tma-agent.exe`, `tma-relay.exe`, `tma-parser.exe` and `tma-doctor.exe`. Payload directory is needed only while building installer, not while running it. Explicit development path: build installer without `TMA_PAYLOAD_DIR` and keep those four binaries beside `tma-installer.exe`.
 
+GitHub Actions builds and publishes the same installer when a `v*` tag is pushed. The release includes `TMA-Agent-Setup.exe` and `SHA256SUMS.txt`; formatting, Clippy, and workspace tests must pass before publication.
+
 Launch `dist\setup.exe` without arguments for native Windows setup. Choose **Install agent**, **Repair / upgrade**, or **Uninstall**. The form validates the control-plane URL, one-time pairing code, required Chrome extension ID and optional Edge ID before requesting UAC elevation. For a lab Control Plane over plain HTTP, select **Development mode — allow direct HTTP to a lab Control Plane** in the installer. It is unchecked by default for safety and its choice is saved in `config.json`; HTTPS does not require this option. Work runs in a separate elevated process; the window reports actual setup stages and errors without freezing. **Recheck health** queries the installed service over authenticated IPC. Setup never claims `Protected` from service startup alone: enrollment, policy readiness and browser connection must be confirmed by health.
 
 The same executable retains all CLI commands below. GUI repair with every connection field blank preserves existing configuration. Uninstall retains data by default; selecting purge shows an explicit irreversible-data warning before removing queued events, enrollment and policy.

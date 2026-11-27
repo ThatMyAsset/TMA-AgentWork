@@ -1,0 +1,52 @@
+name: agent-release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          target: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo build --release -p tma-agent --bins
+
+      - name: Build the single-file Windows installer
+        run: cargo build --release -p tma-installer
+        env:
+          TMA_PAYLOAD_DIR: ${{ github.workspace }}\target\release
+
+      - name: Prepare release assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/tma-installer.exe dist/TMA-Agent-Setup.exe
+          $hash = (Get-FileHash -Algorithm SHA256 dist/TMA-Agent-Setup.exe).Hash.ToLowerInvariant()
+          Set-Content -NoNewline dist/SHA256SUMS.txt "$hash  TMA-Agent-Setup.exe"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: TMA Agent ${{ github.ref_name }}
+          generate_release_notes: true
+          make_latest: true
+          files: |
+            dist/TMA-Agent-Setup.exe
+            dist/SHA256SUMS.txt
