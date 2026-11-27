@@ -209,7 +209,13 @@ mod installer {
             "--worker" => {
                 let operation = args.next().context("worker operation required")?;
                 let report = args.next().context("worker report path required")?;
-                let purge = args.next().as_deref() == Some("--purge");
+                let worker_options: Vec<_> = args.collect();
+                let purge = worker_options.iter().any(|arg| arg == "--purge");
+                if worker_options.iter().any(|arg| arg == "--development") {
+                    std::env::set_var("TMA_DEVELOPMENT", "true");
+                } else if worker_options.iter().any(|arg| arg == "--production") {
+                    std::env::set_var("TMA_DEVELOPMENT", "false");
+                }
                 let report = std::fs::OpenOptions::new()
                     .append(true)
                     .open(report)
