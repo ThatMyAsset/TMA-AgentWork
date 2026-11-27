@@ -30,14 +30,15 @@ Remove-Item Env:TMA_PAYLOAD_DIR
 
 `dist/setup.exe` is standalone offline installer: its build script embeds zlib-compressed `tma-agent.exe`, `tma-relay.exe`, `tma-parser.exe` and `tma-doctor.exe`. Payload directory is needed only while building installer, not while running it. Explicit development path: build installer without `TMA_PAYLOAD_DIR` and keep those four binaries beside `tma-installer.exe`.
 
-Launch `dist\setup.exe` without arguments for native Windows setup. Choose **Install agent**, **Repair / upgrade**, or **Uninstall**. The form validates the control-plane URL, one-time pairing code, required Chrome extension ID and optional Edge ID before requesting UAC elevation. Work runs in a separate elevated process; the window reports actual setup stages and errors without freezing. **Recheck health** queries the installed service over authenticated IPC. Setup never claims `Protected` from service startup alone: enrollment, policy readiness and browser connection must be confirmed by health.
+Launch `dist\setup.exe` without arguments for native Windows setup. Choose **Install agent**, **Repair / upgrade**, or **Uninstall**. The form validates the control-plane URL, one-time pairing code, required Chrome extension ID and optional Edge ID before requesting UAC elevation. The GUI defaults to development mode, so enter `http://43.157.201.52:18080` directly; it is saved in `config.json` and used for enrollment and heartbeats. Work runs in a separate elevated process; the window reports actual setup stages and errors without freezing. **Recheck health** queries the installed service over authenticated IPC. Setup never claims `Protected` from service startup alone: enrollment, policy readiness and browser connection must be confirmed by health.
 
 The same executable retains all CLI commands below. GUI repair with every connection field blank preserves existing configuration. Uninstall retains data by default; selecting purge shows an explicit irreversible-data warning before removing queued events, enrollment and policy.
 
 ## Install, pair and start
 
 ```powershell
-$env:TMA_CONTROL_PLANE_URL = "https://dlp.example.com"
+$env:TMA_DEVELOPMENT = "true"
+$env:TMA_CONTROL_PLANE_URL = "http://43.157.201.52:18080"
 $env:TMA_PAIRING_CODE = "one-time-code-from-admin"
 $env:TMA_CHROME_EXTENSION_ID = "extension-id-from-chrome-web-store-or-unpacked-load"
 .\dist\setup.exe install
@@ -51,7 +52,7 @@ Native host name is **`com.thatmyassets.dlp`**. Installer writes `%ProgramData%\
 .\dist\setup.exe register-extension <chrome-extension-id> [edge-extension-id]
 ```
 
-Service pairing is performed at first synchronization using the one-time code. Pairing code and device token are not command-line arguments, events or logs. Device token is stored in ACL-protected `%ProgramData%\ThatMyAssets\device-token`; only service, LocalService, SYSTEM and Administrators can read it. Production control plane URLs must use HTTPS; plain HTTP is for loopback development only.
+Service pairing is performed at first synchronization using the one-time code. Pairing code and device token are not command-line arguments, events or logs. Device token is stored in ACL-protected `%ProgramData%\ThatMyAssets\device-token`; only service, LocalService, SYSTEM and Administrators can read it. Set `TMA_DEVELOPMENT=true` for direct HTTP control-plane URLs; the installer stores this as `development:true` in `config.json`, or an existing config can set that field directly. **Development only:** plain HTTP exposes enrollment and device traffic on the network. Use HTTPS in production; without development mode, HTTP remains restricted to loopback.
 
 ## Diagnostics and local operation
 
@@ -69,7 +70,7 @@ Development console health check (does not create a Windows service or Native Me
 
 ```powershell
 $env:TMA_DATA_DIR = "$PWD\dev-data"
-# First create config.json with install_dir and a random ipc_credential of at least 32 characters.
+# Create config.json with install_dir, a random ipc_credential of at least 32 characters, and development:true when using a direct HTTP URL.
 cargo run --bin tma-agent -- --console
 ```
 

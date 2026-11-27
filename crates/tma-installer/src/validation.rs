@@ -37,7 +37,11 @@ pub struct Configuration {
     pub edge_extension_id: Option<String>,
 }
 
-pub fn validate_url(value: &str) -> Result<String, &'static str> {
+pub fn development_mode() -> bool {
+    std::env::var("TMA_DEVELOPMENT").is_ok_and(|value| value.eq_ignore_ascii_case("true"))
+}
+
+pub fn validate_url(value: &str, development: bool) -> Result<String, &'static str> {
     let value = value.trim().trim_end_matches('/');
     let (scheme, remainder) = value
         .split_once("://")
@@ -59,8 +63,8 @@ pub fn validate_url(value: &str) -> Result<String, &'static str> {
             .unwrap_or_else(|| authority.split(':').next().unwrap_or(""));
         let loopback = host.eq_ignore_ascii_case("localhost")
             || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback());
-        if scheme != "http" || !loopback {
-            return Err("Use HTTPS; plain HTTP is allowed only for loopback development");
+        if scheme != "http" || !(loopback || development) {
+            return Err("Use HTTPS, or enable TMA_DEVELOPMENT=true for development HTTP");
         }
     }
     let port = if let Some(rest) = authority.strip_prefix('[') {
@@ -112,10 +116,11 @@ pub fn validate_configuration(
     pairing_code: &str,
     chrome: &str,
     edge: &str,
+    development: bool,
 ) -> Result<Configuration, String> {
     let edge = edge.trim();
     Ok(Configuration {
-        control_plane_url: validate_url(url).map_err(str::to_owned)?,
+        control_plane_url: validate_url(url, development).map_err(str::to_owned)?,
         pairing_code: validate_pairing_code(pairing_code).map_err(str::to_owned)?,
         chrome_extension_id: validate_extension_id(chrome, "Chrome")?,
         edge_extension_id: if edge.is_empty() {
@@ -131,9 +136,10 @@ pub fn validate_repair_configuration(
     pairing_code: &str,
     chrome: &str,
     edge: &str,
+    development: bool,
 ) -> Result<Configuration, String> {
     if !url.is_empty() {
-        validate_url(url)?;
+        validate_url(url, development)?;
     }
     if !pairing_code.is_empty() {
         validate_pairing_code(pairing_code)?;
@@ -163,30 +169,35 @@ mod tests {
     #[test]
     fn accepts_https_and_trailing_slash() {
         assert_eq!(
-            validate_url(" https://dlp.example.com/ ").unwrap(),
+            validate_url(" https://dlp.example.com/ ", false).unwrap(),
             "https://dlp.example.com"
         );
         assert_eq!(
-            validate_url("https://dlp.example.com:8443/tma").unwrap(),
+            validate_url("https://dlp.example.com:8443/tma", false).unwrap(),
             "https://dlp.example.com:8443/tma"
         );
     }
 
     #[test]
-    fn accepts_only_loopback_http() {
+    fn accepts_direct_http_ip_only_in_development() {
         for url in [
             "http://localhost:8080",
             "http://127.0.0.1",
             "http://[::1]:8080",
         ] {
-            assert!(validate_url(url).is_ok(), "{url}");
+            assert!(validate_url(url, false).is_ok(), "{url}");
         }
+        assert_eq!(
+            validate_url("http://43.157.201.52:18080", true).unwrap(),
+            "http://43.157.201.52:18080"
+        );
         for url in [
             "http://dlp.example.com",
+            "http://43.157.201.52:18080",
             "http://localhost.evil.test",
             "ftp://localhost",
         ] {
-            assert!(validate_url(url).is_err(), "{url}");
+            assert!(validate_url(url, false).is_err(), "{url}");
         }
     }
 
@@ -196,6 +207,8 @@ mod tests {
             "",
             "dlp.example.com",
             "https://",
+            "http://43.157.201.52:bad",
+            "http://user:secret@43.157.201.52:18080",
             "https://user:secret@dlp.example.com",
             "https://dlp.example.com:0",
             "https://dlp.example.com:70000",
@@ -204,7 +217,7 @@ mod tests {
             "https://:443",
             "https://dlp.example.com:443:8443",
         ] {
-            assert!(validate_url(url).is_err(), "{url}");
+            assert!(validate_url(url, true).is_err(), "{url}");
         }
     }
 
@@ -235,6 +248,7 @@ mod tests {
             "tma_pair_abcdefghijklmnop",
             &"a".repeat(32),
             " ",
+            false,
         )
         .unwrap();
         assert_eq!(config.edge_extension_id, None);
@@ -242,14 +256,17 @@ mod tests {
 
     #[test]
     fn repair_keeps_blank_fields_and_validates_supplied_values() {
-        let config = validate_repair_configuration("", "", "", "").unwrap();
+        let config = validate_repair_configuration("", "", "", "", false).unwrap();
         assert!(config.control_plane_url.is_empty());
         assert!(config.pairing_code.is_empty());
         assert!(config.chrome_extension_id.is_empty());
         assert_eq!(config.edge_extension_id, None);
-        assert!(validate_repair_configuration("http://remote.test", "", "", "").is_err());
-        assert!(validate_repair_configuration("", "short", "", "").is_err());
-        assert!(validate_repair_configuration("", "", "invalid", "").is_err());
-        assert!(validate_repair_configuration("", "", "", &"a".repeat(32)).is_ok());
+        assert!(validate_repair_configuration("http://remote.test", "", "", "", false).is_err());
+        assert!(
+            validate_repair_configuration("http://43.157.201.52:18080", "", "", "", true).is_ok()
+        );
+        assert!(validate_repair_configuration("", "short", "", "", false).is_err());
+        assert!(validate_repair_configuration("", "", "invalid", "", false).is_err());
+        assert!(validate_repair_configuration("", "", "", &"a".repeat(32), false).is_ok());
     }
 }

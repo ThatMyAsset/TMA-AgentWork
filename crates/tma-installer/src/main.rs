@@ -196,11 +196,12 @@ mod installer {
                     .context("opening setup progress report")?;
                 let _ = WORKER_OUTPUT.set(Mutex::new(report));
                 if operation != "uninstall" {
+                    let development = validation::development_mode();
                     for variable in ["TMA_CONTROL_PLANE_URL", "TMA_PAIRING_CODE", "TMA_CHROME_EXTENSION_ID", "TMA_EDGE_EXTENSION_ID"] {
                         if let Ok(value) = std::env::var(variable) {
                             if !value.is_empty() {
                                 let result = match variable {
-                                    "TMA_CONTROL_PLANE_URL" => validation::validate_url(&value).map(|_| ()).map_err(str::to_owned),
+                                    "TMA_CONTROL_PLANE_URL" => validation::validate_url(&value, development).map(|_| ()).map_err(str::to_owned),
                                     "TMA_PAIRING_CODE" => validation::validate_pairing_code(&value).map(|_| ()).map_err(str::to_owned),
                                     "TMA_CHROME_EXTENSION_ID" => validation::validate_extension_id(&value, "Chrome").map(|_| ()),
                                     _ => validation::validate_extension_id(&value, "Edge").map(|_| ()),
@@ -237,9 +238,10 @@ mod installer {
                 }
             }
             "install" | "repair" | "upgrade" => {
+                let development = validation::development_mode();
                 if let Ok(url) = std::env::var("TMA_CONTROL_PLANE_URL") {
                     if !url.is_empty() {
-                        validation::validate_url(&url).map_err(|error| anyhow::anyhow!(error))?;
+                        validation::validate_url(&url, development).map_err(|error| anyhow::anyhow!(error))?;
                     }
                 }
                 if let Ok(code) = std::env::var("TMA_PAIRING_CODE") {
@@ -355,6 +357,7 @@ mod installer {
         {
             config["ipc_credential"] = serde_json::Value::String(random_credential()?);
         }
+        config["development"] = serde_json::Value::Bool(validation::development_mode());
         if let Ok(url) = std::env::var("TMA_CONTROL_PLANE_URL") {
             if !url.is_empty() {
                 config["control_plane_url"] = serde_json::Value::String(url);
