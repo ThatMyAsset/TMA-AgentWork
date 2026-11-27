@@ -88,12 +88,6 @@ impl Agent {
                     age.num_seconds() <= 120 && age.num_seconds() >= -60
                 })
         };
-        if connection.control_plane_state != ControlPlaneState::Connected
-            || !fresh(&connection.last_heartbeat)
-            || !fresh(&connection.last_policy_sync)
-        {
-            return AgentStatus::Degraded;
-        }
         let ready = self
             .store
             .lock()
@@ -101,10 +95,15 @@ impl Agent {
             .policy()
             .map(|policy| policy.version != Uuid::nil() && crate::policy::validate(&policy).is_ok())
             .unwrap_or(false);
-        if ready && self.browser_connected.load(Ordering::Relaxed) {
-            AgentStatus::Protected
-        } else {
+        if !ready || !self.browser_connected.load(Ordering::Relaxed) {
             AgentStatus::Limited
+        } else if connection.control_plane_state != ControlPlaneState::Connected
+            || !fresh(&connection.last_heartbeat)
+            || !fresh(&connection.last_policy_sync)
+        {
+            AgentStatus::Degraded
+        } else {
+            AgentStatus::Protected
         }
     }
 
