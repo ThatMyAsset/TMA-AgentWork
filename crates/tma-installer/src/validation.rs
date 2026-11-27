@@ -35,6 +35,7 @@ pub struct Configuration {
     pub pairing_code: String,
     pub chrome_extension_id: String,
     pub edge_extension_id: Option<String>,
+    pub development: bool,
 }
 
 pub fn development_mode_value(value: Option<&str>, existing: bool) -> bool {
@@ -132,6 +133,7 @@ pub fn validate_configuration(
         } else {
             Some(validate_extension_id(edge, "Edge")?)
         },
+        development,
     })
 }
 
@@ -163,6 +165,7 @@ pub fn validate_repair_configuration(
         } else {
             Some(edge.trim().to_owned())
         },
+        development,
     })
 }
 
@@ -265,6 +268,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(config.edge_extension_id, None);
+        assert!(!config.development);
     }
 
     #[test]
@@ -274,6 +278,7 @@ mod tests {
         assert!(config.pairing_code.is_empty());
         assert!(config.chrome_extension_id.is_empty());
         assert_eq!(config.edge_extension_id, None);
+        assert!(!config.development);
         assert!(validate_repair_configuration("http://remote.test", "", "", "", false).is_err());
         assert!(
             validate_repair_configuration("http://43.157.201.52:18080", "", "", "", true).is_ok()
