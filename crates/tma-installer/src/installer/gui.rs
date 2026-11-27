@@ -36,6 +36,7 @@ const ID_CODE: usize = 111;
 const ID_CHROME: usize = 112;
 const ID_EDGE: usize = 113;
 const ID_PURGE: usize = 120;
+const ID_DEVELOPMENT: usize = 126;
 const ID_START: usize = 121;
 const ID_CLOSE: usize = 122;
 const ID_HEALTH: usize = 123;
@@ -55,6 +56,7 @@ enum Field {
     Edit(usize),
     Button(usize),
     Purge,
+    Development,
     Progress,
     Label,
     Status,
@@ -182,6 +184,7 @@ impl Window {
                     Some(*hwnd)
                 }
                 Field::Purge if id == ID_PURGE => Some(*hwnd),
+                Field::Development if id == ID_DEVELOPMENT => Some(*hwnd),
                 Field::Progress if id == ID_PROGRESS => Some(*hwnd),
                 Field::Status if id == ID_STATUS => Some(*hwnd),
                 _ => None,
@@ -236,6 +239,7 @@ impl Window {
             Field::Progress => ID_PROGRESS,
             Field::Status => ID_STATUS,
             Field::Purge => ID_PURGE,
+            Field::Development => ID_DEVELOPMENT,
             Field::Label => 0,
         };
         let hwnd = unsafe {
@@ -382,11 +386,27 @@ impl Window {
         }
         self.control(
             "BUTTON",
-            "Also permanently erase local events, enrollment and policy (purge)",
+            "Development mode — allow direct HTTP to a lab Control Plane",
             BS_AUTOCHECKBOX as u32 | WS_TABSTOP | WS_GROUP,
             0,
             32,
             410,
+            776,
+            26,
+            Field::Development,
+        )?;
+        if development_mode() {
+            unsafe {
+                SendMessageW(self.field(ID_DEVELOPMENT), BM_SETCHECK, BST_CHECKED as usize, 0);
+            }
+        }
+        self.control(
+            "BUTTON",
+            "Also permanently erase local events, enrollment and policy (purge)",
+            BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
+            0,
+            32,
+            440,
             776,
             26,
             Field::Purge,
@@ -398,7 +418,7 @@ impl Window {
             0,
             0,
             32,
-            455,
+            480,
             400,
             20,
             Field::Label,
@@ -409,7 +429,7 @@ impl Window {
             SS_LEFTNOWORDWRAP,
             0,
             32,
-            484,
+            509,
             776,
             44,
             Field::Status,
@@ -420,7 +440,7 @@ impl Window {
             PBS_SMOOTH,
             0,
             32,
-            536,
+            562,
             776,
             8,
             Field::Progress,
@@ -432,7 +452,7 @@ impl Window {
             WS_TABSTOP | WS_GROUP,
             0,
             456,
-            582,
+            592,
             144,
             36,
             Field::Button(ID_HEALTH),
@@ -443,7 +463,7 @@ impl Window {
             WS_TABSTOP,
             0,
             612,
-            582,
+            592,
             84,
             36,
             Field::Button(ID_CLOSE),
@@ -454,7 +474,7 @@ impl Window {
             BS_DEFPUSHBUTTON as u32 | WS_TABSTOP,
             0,
             682,
-            582,
+            592,
             126,
             36,
             Field::Button(ID_START),
@@ -497,6 +517,7 @@ impl Window {
             ID_START,
             ID_HEALTH,
             ID_PURGE,
+            ID_DEVELOPMENT,
         ] {
             unsafe {
                 EnableWindow(self.field(id), (!self.busy).into());
@@ -506,6 +527,10 @@ impl Window {
             ShowWindow(
                 self.field(ID_PURGE),
                 if configuration { SW_HIDE } else { SW_SHOW },
+            );
+            ShowWindow(
+                self.field(ID_DEVELOPMENT),
+                if configuration { SW_SHOW } else { SW_HIDE },
             );
         }
         self.set_text(
@@ -534,6 +559,9 @@ impl Window {
         } else {
             operation
         };
+        let development = unsafe {
+            SendMessageW(self.field(ID_DEVELOPMENT), BM_GETCHECK, 0, 0)
+        } == BST_CHECKED as isize;
         let configuration = if operation.needs_configuration() {
             let (url, code, chrome, edge) = (
                 self.text(ID_URL),
@@ -542,9 +570,9 @@ impl Window {
                 self.text(ID_EDGE),
             );
             let result = if matches!(operation, Operation::Repair) {
-                validation::validate_repair_configuration(&url, &code, &chrome, &edge, development_mode())
+                validation::validate_repair_configuration(&url, &code, &chrome, &edge, development)
             } else {
-                validation::validate_configuration(&url, &code, &chrome, &edge, development_mode())
+                validation::validate_configuration(&url, &code, &chrome, &edge, development)
             };
             match result {
                 Ok(configuration) => Some(configuration),
@@ -615,6 +643,7 @@ impl Window {
                     std::env::set_var(variable, value);
                 }
             }
+            std::env::set_var("TMA_DEVELOPMENT", if configuration.development { "true" } else { "false" });
             if let Some(edge) = &configuration.edge_extension_id {
                 std::env::set_var("TMA_EDGE_EXTENSION_ID", edge);
             }
@@ -657,6 +686,7 @@ impl Window {
             "TMA_PAIRING_CODE",
             "TMA_CHROME_EXTENSION_ID",
             "TMA_EDGE_EXTENSION_ID",
+            "TMA_DEVELOPMENT",
         ] {
             std::env::remove_var(variable);
         }
