@@ -647,14 +647,6 @@ impl Window {
                     std::env::set_var(variable, value);
                 }
             }
-            std::env::set_var(
-                "TMA_DEVELOPMENT",
-                if configuration.development {
-                    "true"
-                } else {
-                    "false"
-                },
-            );
             if let Some(edge) = &configuration.edge_extension_id {
                 std::env::set_var("TMA_EDGE_EXTENSION_ID", edge);
             }
@@ -662,6 +654,13 @@ impl Window {
         let mut parameters = format!("--worker {} \"{}\"", operation.argument(), report.display());
         if matches!(operation, Operation::Uninstall { purge: true }) {
             parameters.push_str(" --purge");
+        }
+        if let Some(configuration) = configuration {
+            parameters.push_str(if configuration.development {
+                " --development"
+            } else {
+                " --production"
+            });
         }
         let executable = std::env::current_exe()?;
         let executable_wide = wide(executable.as_os_str());
@@ -697,7 +696,6 @@ impl Window {
             "TMA_PAIRING_CODE",
             "TMA_CHROME_EXTENSION_ID",
             "TMA_EDGE_EXTENSION_ID",
-            "TMA_DEVELOPMENT",
         ] {
             std::env::remove_var(variable);
         }
