@@ -41,6 +41,21 @@ impl Store {
         })
     }
 
+    pub fn meta(&self, key: &str) -> anyhow::Result<Option<String>> {
+        self.connection
+            .query_row("SELECT value FROM meta WHERE key=?1", [key], |row| row.get(0))
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn set_meta(&self, key: &str, value: &str) -> anyhow::Result<()> {
+        self.connection.execute(
+            "INSERT INTO meta(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
     pub fn save_policy(&self, policy: &Policy) -> anyhow::Result<()> {
         crate::policy::validate(policy)?;
         self.connection.execute("INSERT INTO meta(key,value) VALUES('policy',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [serde_json::to_string(policy)?])?;
